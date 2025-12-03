@@ -94,6 +94,8 @@ gunicorn -w 4 -b 127.0.0.1:5000 run:app
 
 *   ユーザー名: `admin`
 *   パスワード: `admin_password_change_me`
+*   **管理者パネル URL**: `/admin_secure_panel_z8x9/`
+    *   (例: `http://127.0.0.1:5000/admin_secure_panel_z8x9/`)
 
 **重要**: ログイン後、必ずパスワードを変更してください。
 
