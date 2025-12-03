@@ -15,5 +15,5 @@ class Config:
     SESSION_COOKIE_SAMESITE = 'Lax'
     
     # Rate Limiting
-    RATELIMIT_DEFAULT = "200 per day"
+    RATELIMIT_DEFAULT = "1000000 per day"
     RATELIMIT_STORAGE_URL = "memory://"
