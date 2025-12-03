@@ -12,14 +12,28 @@
         </div>
     </div>
 
-    <form method="POST" action="{{ url_for('main.upload_file') }}" enctype="multipart/form-data" class="upload-form">
+    <form id="upload-form" method="POST" action="{{ url_for('main.upload_file') }}" enctype="multipart/form-data"
+        class="upload-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group">
             <label for="file">Upload File</label>
             <input type="file" id="file" name="file" required>
         </div>
-        <button type="submit" class="btn btn-primary">Upload</button>
+        <button type="submit" class="btn btn-primary" id="upload-btn">Upload</button>
     </form>
+
+    <!-- Upload Progress -->
+    <div id="upload-progress" style="display: none; margin-top: 20px;">
+        <div style="margin-bottom: 10px;">
+            <strong>Upload Progress:</strong> <span id="progress-percent">0</span>%
+        </div>
+        <div class="quota-bar">
+            <div id="progress-bar" class="quota-fill" style="width: 0%; background-color: #4CAF50;"></div>
+        </div>
+        <div style="margin-top: 10px;">
+            <strong>Speed:</strong> <span id="upload-speed">0</span> Mbps
+        </div>
+    </div>
 
     <table>
         <thead>
@@ -53,4 +67,97 @@
         </tbody>
     </table>
 </div>
+
+<script>
+    document.getElementById('upload-form').addEventListener('submit', function (e) {
+        e.preventDefault();
+
+        const fileInput = document.getElementById('file');
+        const file = fileInput.files[0];
+
+        if (!file) {
+            alert('Please select a file');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
+
+        const xhr = new XMLHttpRequest();
+        const progressDiv = document.getElementById('upload-progress');
+        const progressBar = document.getElementById('progress-bar');
+        const progressPercent = document.getElementById('progress-percent');
+        const uploadSpeed = document.getElementById('upload-speed');
+        const uploadBtn = document.getElementById('upload-btn');
+
+        let startTime = Date.now();
+        let lastLoaded = 0;
+        let lastTime = startTime;
+
+        // Show progress
+        progressDiv.style.display = 'block';
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = 'Uploading...';
+
+        xhr.upload.addEventListener('progress', function (e) {
+            if (e.lengthComputable) {
+                const percentComplete = (e.loaded / e.total) * 100;
+                progressBar.style.width = percentComplete + '%';
+                progressPercent.textContent = percentComplete.toFixed(1);
+
+                // Calculate speed in Mbps
+                const currentTime = Date.now();
+                const timeDiff = (currentTime - lastTime) / 1000; // seconds
+                const loadedDiff = e.loaded - lastLoaded; // bytes
+
+                if (timeDiff > 0) {
+                    const speedBps = loadedDiff / timeDiff; // bytes per second
+                    const speedMbps = (speedBps * 8) / (1024 * 1024); // Mbps
+                    uploadSpeed.textContent = speedMbps.toFixed(2);
+
+                    lastLoaded = e.loaded;
+                    lastTime = currentTime;
+                }
+            }
+        });
+
+        xhr.addEventListener('load', function () {
+            if (xhr.status === 200) {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    if (response.status === 'success') {
+                        alert('File uploaded successfully!');
+                        location.reload();
+                    } else {
+                        alert('Error: ' + (response.message || 'Upload failed'));
+                        progressDiv.style.display = 'none';
+                        uploadBtn.disabled = false;
+                        uploadBtn.textContent = 'Upload';
+                    }
+                } catch (e) {
+                    // If response is not JSON, assume success (backward compatibility)
+                    alert('File uploaded successfully!');
+                    location.reload();
+                }
+            } else {
+                alert('Upload failed with status: ' + xhr.status);
+                progressDiv.style.display = 'none';
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = 'Upload';
+            }
+        });
+
+        xhr.addEventListener('error', function () {
+            alert('Upload failed due to network error');
+            progressDiv.style.display = 'none';
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'Upload';
+        });
+
+        xhr.open('POST', '{{ url_for("main.upload_file") }}', true);
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        xhr.send(formData);
+    });
+</script>
 {% endblock %}

@@ -7,8 +7,7 @@ class Config:
     
     # Upload settings
     UPLOAD_FOLDER = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'uploads')
-    MAX_CONTENT_LENGTH = 1024 * 1024 * 1024  # 1GB global limit per request
-    ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'zip', 'rar', '7z', 'mp4', 'mp3', 'wav', 'csv', 'json', 'md'}
+    MAX_CONTENT_LENGTH = 5 * 1024 * 1024 * 1024  # 5GB global limit per request
 
     # Security
     SESSION_COOKIE_HTTPONLY = True

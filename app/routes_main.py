@@ -17,16 +17,22 @@ def dashboard():
 @login_required
 def upload_file():
     if 'file' not in request.files:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return {'status': 'error', 'message': 'No file part'}, 400
         flash('No file part', 'danger')
         return redirect(url_for('main.dashboard'))
     
     file = request.files['file']
     if file.filename == '':
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return {'status': 'error', 'message': 'No selected file'}, 400
         flash('No selected file', 'danger')
         return redirect(url_for('main.dashboard'))
         
     filename, error = save_file(file, current_user)
     if error:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return {'status': 'error', 'message': error}, 400
         flash(error, 'danger')
     else:
         # Update used bytes
@@ -34,6 +40,9 @@ def upload_file():
         size = file.tell()
         current_user.used_bytes += size
         db.session.commit()
+        
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return {'status': 'success', 'message': 'File uploaded successfully', 'filename': filename}, 200
         flash('File uploaded successfully.', 'success')
         
     return redirect(url_for('main.dashboard'))

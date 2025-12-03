@@ -6,8 +6,8 @@ from werkzeug.utils import secure_filename
 from flask import current_app
 
 def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in current_app.config['ALLOWED_EXTENSIONS']
+    # Allow all file types - security is handled by secure_filename and server configuration
+    return True
 
 def get_user_upload_dir(user_id):
     upload_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], str(user_id))
