@@ -106,6 +106,10 @@ gunicorn -w 4 -b 127.0.0.1:5000 run:app
 *   `MAX_CONTENT_LENGTH`: アップロードサイズ制限。
 *   `SESSION_COOKIE_SECURE`: HTTPS 通信を強制するかどうか（Cloudflare Tunnel 使用時は `True` 推奨）。
 
+## Acknowledgements
+
+Special thanks to [きゅすみゃ](https://github.com/kyusumya) for their contribution to the development of this project.
+
 ## ライセンス
 
 MIT License
