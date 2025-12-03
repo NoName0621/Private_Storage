@@ -99,6 +99,38 @@ gunicorn -w 4 -b 127.0.0.1:5000 run:app
 
 **重要**: ログイン後、必ずパスワードを変更してください。
 
+### 管理パネル URL の変更方法 (セキュリティ強化)
+
+デフォルトの管理パネル URL (`/admin_secure_panel_z8x9/`) は推測されやすいため、本番環境では必ず変更することを強く推奨します。
+
+#### 変更手順:
+
+1. **`app/routes_admin.py` を開く**
+2. **1行目のBlueprint定義を変更**:
+   ```python
+   # 変更前
+   admin_bp = Blueprint('admin', __name__, url_prefix='/admin_secure_panel_z8x9')
+   
+   # 変更後 (例: ランダムな文字列に変更)
+   admin_bp = Blueprint('admin', __name__, url_prefix='/my_secret_admin_xyz123')
+   ```
+3. **サーバーを再起動**
+4. **新しいURLでアクセス**:
+   - 例: `http://127.0.0.1:5000/my_secret_admin_xyz123/`
+
+#### URL の推奨事項:
+
+- **長くランダムな文字列を使用** (例: `/admin_8k2j9x4m7n1q5p/`)
+- **推測されやすい単語を避ける** (`/admin/`, `/panel/` など)
+- **記号や数字を組み合わせる**
+- **変更後のURLは安全に保管**
+
+#### セキュリティのヒント:
+
+管理パネルURLを変更することで、自動化された攻撃やブルートフォース攻撃のリスクを大幅に軽減できます。
+
+---
+
 ## 設定
 
 `config.py` で設定を変更できます。
