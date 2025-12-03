@@ -128,3 +128,62 @@ def verify_file_integrity(user_id, filename):
         
     current_hash = calculate_file_hash_from_path(file_path)
     return current_hash == stored_hash
+
+def get_chunk_dir(user_id, upload_id):
+    chunk_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'temp', str(user_id), upload_id)
+    if not os.path.exists(chunk_dir):
+        os.makedirs(chunk_dir)
+    return chunk_dir
+
+def save_chunk(user_id, upload_id, chunk_index, chunk_file):
+    chunk_dir = get_chunk_dir(user_id, upload_id)
+    chunk_path = os.path.join(chunk_dir, f"{chunk_index}")
+    chunk_file.save(chunk_path)
+    return True
+
+def merge_chunks(user_id, upload_id, filename, total_chunks, user):
+    chunk_dir = get_chunk_dir(user_id, upload_id)
+    
+    # Check if all chunks exist
+    for i in range(total_chunks):
+        if not os.path.exists(os.path.join(chunk_dir, f"{i}")):
+            return None, f"Missing chunk {i}"
+            
+    # Check quota before merging (approximate)
+    total_size = 0
+    for i in range(total_chunks):
+        total_size += os.path.getsize(os.path.join(chunk_dir, f"{i}"))
+        
+    if not user.has_space(total_size):
+        import shutil
+        shutil.rmtree(chunk_dir)
+        return None, "Quota exceeded."
+
+    # Secure filename
+    filename = secure_filename(filename)
+    if not filename:
+        filename = str(uuid.uuid4())
+        
+    upload_dir = get_user_upload_dir(user.id)
+    file_path = os.path.join(upload_dir, filename)
+    
+    # Merge
+    with open(file_path, "wb") as outfile:
+        for i in range(total_chunks):
+            chunk_path = os.path.join(chunk_dir, f"{i}")
+            with open(chunk_path, "rb") as infile:
+                outfile.write(infile.read())
+                
+    # Calculate hash
+    file_hash = calculate_file_hash_from_path(file_path)
+    
+    # Save metadata
+    metadata = load_metadata(user.id)
+    metadata[filename] = file_hash
+    save_metadata(user.id, metadata)
+    
+    # Cleanup chunks
+    import shutil
+    shutil.rmtree(chunk_dir)
+    
+    return filename, None

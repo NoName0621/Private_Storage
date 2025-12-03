@@ -69,7 +69,7 @@
 </div>
 
 <script>
-    document.getElementById('upload-form').addEventListener('submit', function (e) {
+    document.getElementById('upload-form').addEventListener('submit', async function (e) {
         e.preventDefault();
 
         const fileInput = document.getElementById('file');
@@ -80,84 +80,144 @@
             return;
         }
 
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
+        // Configuration
+        const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB
+        const MAX_RETRIES = 3;
 
-        const xhr = new XMLHttpRequest();
+        // UI Elements
         const progressDiv = document.getElementById('upload-progress');
         const progressBar = document.getElementById('progress-bar');
         const progressPercent = document.getElementById('progress-percent');
         const uploadSpeed = document.getElementById('upload-speed');
         const uploadBtn = document.getElementById('upload-btn');
+        const csrfToken = document.querySelector('input[name="csrf_token"]').value;
 
+        // State
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        const uploadId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+        let chunksUploaded = 0;
         let startTime = Date.now();
-        let lastLoaded = 0;
-        let lastTime = startTime;
+        let lastUpdateTime = startTime;
+        let lastLoadedBytes = 0;
 
-        // Show progress
+        // Speed smoothing
+        const speedReadings = [];
+        const MAX_SPEED_READINGS = 5;
+
+        // Reset UI
         progressDiv.style.display = 'block';
         uploadBtn.disabled = true;
         uploadBtn.textContent = 'Uploading...';
+        progressBar.style.width = '0%';
+        progressPercent.textContent = '0';
+        uploadSpeed.textContent = '0';
 
-        xhr.upload.addEventListener('progress', function (e) {
-            if (e.lengthComputable) {
-                const percentComplete = (e.loaded / e.total) * 100;
+        // Helper: Upload a single chunk
+        async function uploadChunk(chunkIndex, start, end) {
+            const chunk = file.slice(start, end);
+            const formData = new FormData();
+            formData.append('file', chunk);
+            formData.append('upload_id', uploadId);
+            formData.append('chunk_index', chunkIndex);
+            formData.append('csrf_token', csrfToken);
+
+            for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                try {
+                    const response = await fetch('{{ url_for("main.upload_chunk") }}', {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    if (result.status !== 'success') {
+                        throw new Error(result.message || 'Unknown error');
+                    }
+                    return; // Success
+                } catch (error) {
+                    console.error(`Chunk ${chunkIndex} attempt ${attempt + 1} failed:`, error);
+                    if (attempt === MAX_RETRIES - 1) throw error;
+                    await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1))); // Exponential backoff
+                }
+            }
+        }
+
+        try {
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, file.size);
+
+                await uploadChunk(i, start, end);
+
+                chunksUploaded++;
+
+                // Update Progress
+                const percentComplete = (chunksUploaded / totalChunks) * 100;
                 progressBar.style.width = percentComplete + '%';
                 progressPercent.textContent = percentComplete.toFixed(1);
 
-                // Calculate speed in Mbps
+                // Update Speed (Smoothed)
                 const currentTime = Date.now();
-                const timeDiff = (currentTime - lastTime) / 1000; // seconds
-                const loadedDiff = e.loaded - lastLoaded; // bytes
+                const timeDiff = (currentTime - lastUpdateTime) / 1000; // seconds
 
-                if (timeDiff > 0) {
-                    const speedBps = loadedDiff / timeDiff; // bytes per second
-                    const speedMbps = (speedBps * 8) / (1024 * 1024); // Mbps
-                    uploadSpeed.textContent = speedMbps.toFixed(2);
+                if (timeDiff >= 0.5 || i === totalChunks - 1) { // Update every 500ms or at end
+                    const totalUploadedSoFar = Math.min((i + 1) * CHUNK_SIZE, file.size);
+                    const bytesDiffForSpeed = totalUploadedSoFar - lastLoadedBytes;
 
-                    lastLoaded = e.loaded;
-                    lastTime = currentTime;
+                    const speedBps = bytesDiffForSpeed / timeDiff;
+                    const speedMbps = (speedBps * 8) / (1024 * 1024);
+
+                    // Smoothing
+                    speedReadings.push(speedMbps);
+                    if (speedReadings.length > MAX_SPEED_READINGS) speedReadings.shift();
+                    const avgSpeed = speedReadings.reduce((a, b) => a + b, 0) / speedReadings.length;
+
+                    uploadSpeed.textContent = avgSpeed.toFixed(2);
+
+                    lastUpdateTime = currentTime;
+                    lastLoadedBytes = totalUploadedSoFar;
                 }
             }
-        });
 
-        xhr.addEventListener('load', function () {
-            if (xhr.status === 200) {
-                try {
-                    const response = JSON.parse(xhr.responseText);
-                    if (response.status === 'success') {
-                        alert('File uploaded successfully!');
-                        location.reload();
-                    } else {
-                        alert('Error: ' + (response.message || 'Upload failed'));
-                        progressDiv.style.display = 'none';
-                        uploadBtn.disabled = false;
-                        uploadBtn.textContent = 'Upload';
-                    }
-                } catch (e) {
-                    // If response is not JSON, assume success (backward compatibility)
-                    alert('File uploaded successfully!');
-                    location.reload();
+            // All chunks uploaded, trigger merge
+            uploadBtn.textContent = 'Processing...';
+
+            const formData = new FormData();
+            formData.append('upload_id', uploadId);
+            formData.append('filename', file.name);
+            formData.append('total_chunks', totalChunks);
+            formData.append('csrf_token', csrfToken);
+
+            const response = await fetch('{{ url_for("main.upload_merge") }}', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
                 }
+            });
+
+            if (!response.ok) throw new Error(`Merge failed: ${response.status}`);
+
+            const result = await response.json();
+            if (result.status === 'success') {
+                alert('File uploaded successfully!');
+                location.reload();
             } else {
-                alert('Upload failed with status: ' + xhr.status);
-                progressDiv.style.display = 'none';
-                uploadBtn.disabled = false;
-                uploadBtn.textContent = 'Upload';
+                throw new Error(result.message || 'Merge failed');
             }
-        });
 
-        xhr.addEventListener('error', function () {
-            alert('Upload failed due to network error');
+        } catch (error) {
+            alert('Upload failed: ' + error.message);
             progressDiv.style.display = 'none';
             uploadBtn.disabled = false;
             uploadBtn.textContent = 'Upload';
-        });
-
-        xhr.open('POST', '{{ url_for("main.upload_file") }}', true);
-        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-        xhr.send(formData);
+        }
     });
 </script>
 {% endblock %}

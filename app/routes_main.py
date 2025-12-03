@@ -47,6 +47,62 @@ def upload_file():
         
     return redirect(url_for('main.dashboard'))
 
+@main_bp.route('/upload_chunk', methods=['POST'])
+@login_required
+def upload_chunk():
+    if 'file' not in request.files:
+        return {'status': 'error', 'message': 'No file part'}, 400
+        
+    file = request.files['file']
+    upload_id = request.form.get('upload_id')
+    chunk_index = request.form.get('chunk_index')
+    
+    if not upload_id or chunk_index is None:
+        return {'status': 'error', 'message': 'Missing upload_id or chunk_index'}, 400
+        
+    try:
+        from .utils import save_chunk
+        save_chunk(current_user.id, upload_id, int(chunk_index), file)
+        return {'status': 'success'}, 200
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}, 500
+
+@main_bp.route('/upload_merge', methods=['POST'])
+@login_required
+def upload_merge():
+    upload_id = request.form.get('upload_id')
+    filename = request.form.get('filename')
+    total_chunks = request.form.get('total_chunks')
+    
+    if not upload_id or not filename or not total_chunks:
+        return {'status': 'error', 'message': 'Missing parameters'}, 400
+        
+    try:
+        from .utils import merge_chunks
+        saved_filename, error = merge_chunks(current_user.id, upload_id, filename, int(total_chunks), current_user)
+        
+        if error:
+            return {'status': 'error', 'message': error}, 400
+            
+        # Update used bytes
+        # merge_chunks already saved the file, so we can check size
+        # But merge_chunks returns filename, we need full path to check size?
+        # Actually merge_chunks checks quota, so we assume it's fine.
+        # We need to add size to user.used_bytes
+        
+        # Get file size
+        upload_dir = get_user_upload_dir(current_user.id)
+        file_path = os.path.join(upload_dir, saved_filename)
+        size = os.path.getsize(file_path)
+        
+        current_user.used_bytes += size
+        db.session.commit()
+        
+        flash('File uploaded successfully.', 'success')
+        return {'status': 'success', 'filename': saved_filename}, 200
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}, 500
+
 @main_bp.route('/download/<filename>')
 @login_required
 def download_file(filename):
