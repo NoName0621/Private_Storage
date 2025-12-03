@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Private Storage</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script>
+        // Check local storage or system preference
+        const currentTheme = localStorage.getItem('theme');
+        if (currentTheme) {
+            document.documentElement.setAttribute('data-theme', currentTheme);
+        } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+    </script>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><a href="{{ url_for('main.dashboard') }}">Private Storage</a></h1>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <button id="theme-toggle" class="btn btn-secondary">Toggle Theme</button>
+                {% if current_user.is_authenticated %}
+                <span>{{ current_user.username }}</span>
+                <button onclick="document.getElementById('password-modal').style.display='block'"
+                    class="btn btn-secondary">Change Password</button>
+                <a href="{{ url_for('auth.logout') }}" class="btn btn-secondary">Logout</a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Password Change Modal -->
+        <div id="password-modal" class="modal"
+            style="display:none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
+            <div class="modal-content"
+                style="background-color: var(--bg-color); margin: 15% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 400px; border-radius: 8px;">
+                <span onclick="document.getElementById('password-modal').style.display='none'" class="close"
+                    style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+                <h2>Change Password</h2>
+                <form action="{{ url_for('auth.change_password') }}" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="form-group">
+                        <label for="current_password">Current Password</label>
+                        <input type="password" id="current_password" name="current_password" required
+                            style="width: 100%; padding: 8px; margin: 8px 0; display: inline-block; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                    </div>
+                    <div class="form-group">
+                        <label for="new_password">New Password</label>
+                        <input type="password" id="new_password" name="new_password" required
+                            style="width: 100%; padding: 8px; margin: 8px 0; display: inline-block; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width: 100%;">Update Password</button>
+                </form>
+            </div>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </div>
+    <script>
+        const toggleSwitch = document.querySelector('#theme-toggle');
+        toggleSwitch.addEventListener('click', function (e) {
+            let currentTheme = document.documentElement.getAttribute('data-theme');
+            let targetTheme = "light";
+            if (currentTheme === "light" || !currentTheme) {
+                targetTheme = "dark";
+            }
+            document.documentElement.setAttribute('data-theme', targetTheme);
+            localStorage.setItem('theme', targetTheme);
+        });
+    </script>
+</body>
+
+</html>

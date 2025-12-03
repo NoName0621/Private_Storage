@@ -1,0 +1,76 @@
+from flask import Blueprint, render_template, request, redirect, url_for, flash, send_from_directory, current_app, abort
+from flask_login import login_required, current_user
+from .utils import save_file, get_user_files, delete_user_file, get_user_upload_dir, verify_file_integrity
+from .models import db
+from werkzeug.utils import secure_filename
+import os
+
+main_bp = Blueprint('main', __name__)
+
+@main_bp.route('/')
+@login_required
+def dashboard():
+    files = get_user_files(current_user.id)
+    return render_template('dashboard.html', files=files, user=current_user)
+
+@main_bp.route('/upload', methods=['POST'])
+@login_required
+def upload_file():
+    if 'file' not in request.files:
+        flash('No file part', 'danger')
+        return redirect(url_for('main.dashboard'))
+    
+    file = request.files['file']
+    if file.filename == '':
+        flash('No selected file', 'danger')
+        return redirect(url_for('main.dashboard'))
+        
+    filename, error = save_file(file, current_user)
+    if error:
+        flash(error, 'danger')
+    else:
+        # Update used bytes
+        file.seek(0, os.SEEK_END)
+        size = file.tell()
+        current_user.used_bytes += size
+        db.session.commit()
+        flash('File uploaded successfully.', 'success')
+        
+    return redirect(url_for('main.dashboard'))
+
+@main_bp.route('/download/<filename>')
+@login_required
+def download_file(filename):
+    # Security check: filename must be secure
+    filename = secure_filename(filename)
+    
+    # Verify integrity
+    if not verify_file_integrity(current_user.id, filename):
+        flash('File integrity check failed! The file may be corrupted.', 'danger')
+        return redirect(url_for('main.dashboard'))
+        
+    upload_dir = get_user_upload_dir(current_user.id)
+    return send_from_directory(upload_dir, filename, as_attachment=True)
+
+@main_bp.route('/delete/<filename>', methods=['POST'])
+@login_required
+def delete_file(filename):
+    if delete_user_file(current_user.id, filename):
+        # Update quota
+        # We need to know the size of the deleted file to subtract it.
+        # But delete_user_file already deleted it.
+        # Ideally we should check size before delete.
+        # Refactoring logic slightly to handle quota update correctly.
+        # But for now, let's just recalculate used_bytes from disk to be safe and self-healing.
+        
+        # Recalculate usage
+        files = get_user_files(current_user.id)
+        total_size = sum(f['size'] for f in files)
+        current_user.used_bytes = total_size
+        db.session.commit()
+        
+        flash('File deleted.', 'success')
+    else:
+        flash('File not found.', 'danger')
+        
+    return redirect(url_for('main.dashboard'))

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>My Files</h2>
+
+    <div style="margin-bottom: 20px;">
+        <strong>Storage Usage:</strong> {{ (user.used_bytes / 1024 / 1024)|round(2) }} MB / {{ (user.quota_bytes / 1024
+        / 1024 / 1024)|round(2) }} GB
+        <div class="quota-bar">
+            <div class="quota-fill" style="width: {{ (user.used_bytes / user.quota_bytes * 100)|round(2) }}%"></div>
+        </div>
+    </div>
+
+    <form method="POST" action="{{ url_for('main.upload_file') }}" enctype="multipart/form-data" class="upload-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+            <label for="file">Upload File</label>
+            <input type="file" id="file" name="file" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Upload</button>
+    </form>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Filename</th>
+                <th>Size</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for file in files %}
+            <tr>
+                <td>{{ file.name }}</td>
+                <td>{{ (file.size / 1024 / 1024)|round(2) }} MB</td>
+                <td>
+                    <a href="{{ url_for('main.download_file', filename=file.name) }}" class="btn btn-primary"
+                        style="padding: 4px 8px; font-size: 12px;">Download</a>
+                    <form action="{{ url_for('main.delete_file', filename=file.name) }}" method="POST"
+                        style="display: inline;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;"
+                            onclick="return confirm('Are you sure?')">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="3" style="text-align: center;">No files uploaded yet.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
