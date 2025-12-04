@@ -12,6 +12,7 @@ Windows、Mac、Linux すべての環境で動作し、インターネット上�
     *   パスワード変更機能。
     *   管理者パネルによるユーザー管理。
     *   ダークモード対応。
+    *   ファイルの共有可能。
 
 ## 必要要件
 
@@ -147,3 +148,4 @@ Special thanks to [きゅすみゃ](https://github.com/kyusumya) for their contr
 ## ライセンス
 
 MIT License
+
