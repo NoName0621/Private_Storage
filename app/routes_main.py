@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_from_directory, current_app, abort
 from flask_login import login_required, current_user
-from .utils import save_file, get_user_files, delete_user_file, get_user_upload_dir, verify_file_integrity
+from .utils import save_file, get_user_files, delete_user_file, get_user_upload_dir, verify_file_integrity, generate_share_token, revoke_share_token, get_file_by_token, delete_upload_chunks
 from .models import db
 from werkzeug.utils import secure_filename
 import os
@@ -10,6 +10,10 @@ main_bp = Blueprint('main', __name__)
 @main_bp.route('/')
 @login_required
 def dashboard():
+    # Cleanup temp files on dashboard load to prevent quota lock-out from failed uploads
+    from .utils import cleanup_user_temp
+    cleanup_user_temp(current_user.id)
+    
     files = get_user_files(current_user.id)
     return render_template('dashboard.html', files=files, user=current_user)
 
@@ -22,28 +26,29 @@ def upload_file():
         flash('No file part', 'danger')
         return redirect(url_for('main.dashboard'))
     
-    file = request.files['file']
-    if file.filename == '':
+    files = request.files.getlist('file')
+    if not files or files[0].filename == '':
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return {'status': 'error', 'message': 'No selected file'}, 400
         flash('No selected file', 'danger')
         return redirect(url_for('main.dashboard'))
         
-    filename, error = save_file(file, current_user)
-    if error:
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return {'status': 'error', 'message': error}, 400
-        flash(error, 'danger')
-    else:
-        # Update used bytes
-        file.seek(0, os.SEEK_END)
-        size = file.tell()
-        current_user.used_bytes += size
-        db.session.commit()
-        
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return {'status': 'success', 'message': 'File uploaded successfully', 'filename': filename}, 200
-        flash('File uploaded successfully.', 'success')
+    for file in files:
+        filename, error = save_file(file, current_user)
+        if error:
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return {'status': 'error', 'message': error}, 400
+            flash(error, 'danger')
+        else:
+            # Update used bytes
+            file.seek(0, os.SEEK_END)
+            size = file.tell()
+            current_user.used_bytes += size
+            db.session.commit()
+            
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return {'status': 'success', 'message': 'Files uploaded successfully'}, 200
+    flash('Files uploaded successfully.', 'success')
         
     return redirect(url_for('main.dashboard'))
 
@@ -62,7 +67,9 @@ def upload_chunk():
         
     try:
         from .utils import save_chunk
-        save_chunk(current_user.id, upload_id, int(chunk_index), file)
+        success, error = save_chunk(current_user.id, upload_id, int(chunk_index), file, current_user)
+        if not success:
+            return {'status': 'error', 'message': error}, 400
         return {'status': 'success'}, 200
     except Exception as e:
         return {'status': 'error', 'message': str(e)}, 500
@@ -85,12 +92,6 @@ def upload_merge():
             return {'status': 'error', 'message': error}, 400
             
         # Update used bytes
-        # merge_chunks already saved the file, so we can check size
-        # But merge_chunks returns filename, we need full path to check size?
-        # Actually merge_chunks checks quota, so we assume it's fine.
-        # We need to add size to user.used_bytes
-        
-        # Get file size
         upload_dir = get_user_upload_dir(current_user.id)
         file_path = os.path.join(upload_dir, saved_filename)
         size = os.path.getsize(file_path)
@@ -102,6 +103,18 @@ def upload_merge():
         return {'status': 'success', 'filename': saved_filename}, 200
     except Exception as e:
         return {'status': 'error', 'message': str(e)}, 500
+
+@main_bp.route('/upload/cancel', methods=['POST'])
+@login_required
+def upload_cancel():
+    upload_id = request.form.get('upload_id')
+    if not upload_id:
+        return {'status': 'error', 'message': 'Missing upload_id'}, 400
+        
+    if delete_upload_chunks(current_user.id, upload_id):
+        return {'status': 'success', 'message': 'Upload cancelled and cleaned up'}, 200
+    else:
+        return {'status': 'error', 'message': 'Upload not found or already cleaned'}, 404
 
 @main_bp.route('/download/<filename>')
 @login_required
@@ -121,13 +134,6 @@ def download_file(filename):
 @login_required
 def delete_file(filename):
     if delete_user_file(current_user.id, filename):
-        # Update quota
-        # We need to know the size of the deleted file to subtract it.
-        # But delete_user_file already deleted it.
-        # Ideally we should check size before delete.
-        # Refactoring logic slightly to handle quota update correctly.
-        # But for now, let's just recalculate used_bytes from disk to be safe and self-healing.
-        
         # Recalculate usage
         files = get_user_files(current_user.id)
         total_size = sum(f['size'] for f in files)
@@ -139,3 +145,28 @@ def delete_file(filename):
         flash('File not found.', 'danger')
         
     return redirect(url_for('main.dashboard'))
+
+@main_bp.route('/share/<filename>', methods=['POST'])
+@login_required
+def share_file(filename):
+    token = generate_share_token(current_user.id, filename)
+    if token:
+        share_url = url_for('main.public_download', token=token, _external=True)
+        return {'status': 'success', 'token': token, 'url': share_url}, 200
+    return {'status': 'error', 'message': 'File not found'}, 404
+
+@main_bp.route('/unshare/<filename>', methods=['POST'])
+@login_required
+def unshare_file(filename):
+    if revoke_share_token(current_user.id, filename):
+        return {'status': 'success'}, 200
+    return {'status': 'error', 'message': 'File not found'}, 404
+
+@main_bp.route('/s/<token>')
+def public_download(token):
+    user_id, filename = get_file_by_token(token)
+    if not user_id or not filename:
+        abort(404)
+        
+    upload_dir = get_user_upload_dir(user_id)
+    return send_from_directory(upload_dir, filename, as_attachment=True)

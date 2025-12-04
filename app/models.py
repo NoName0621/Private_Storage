@@ -30,3 +30,22 @@ class User(UserMixin, db.Model):
 
     def has_space(self, size):
         return (self.used_bytes + size) <= self.quota_bytes
+
+class SystemSetting(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(64), unique=True, index=True)
+    value = db.Column(db.String(256))
+
+    @staticmethod
+    def get_value(key, default=None):
+        setting = SystemSetting.query.filter_by(key=key).first()
+        return setting.value if setting else default
+
+    @staticmethod
+    def set_value(key, value):
+        setting = SystemSetting.query.filter_by(key=key).first()
+        if not setting:
+            setting = SystemSetting(key=key)
+            db.session.add(setting)
+        setting.value = str(value)
+        db.session.commit()
