@@ -124,6 +124,21 @@ class UpdateService:
             return True
             
         try:
+            # Delete old backups first (keep only the most recent one)
+            if self.backup_dir.exists():
+                existing_backups = sorted(
+                    [d for d in self.backup_dir.iterdir() if d.is_dir()],
+                    key=lambda x: x.stat().st_mtime,
+                    reverse=True
+                )
+                # Remove all existing backups (we'll create a new one)
+                for old_backup in existing_backups:
+                    try:
+                        shutil.rmtree(old_backup)
+                        logger.info(f"Removed old backup: {old_backup.name}")
+                    except Exception as e:
+                        logger.warning(f"Could not remove old backup {old_backup.name}: {e}")
+            
             # Create backup directory with timestamp
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             backup_path = self.backup_dir / f"backup_{self.current_version}_{timestamp}"
@@ -176,16 +191,96 @@ class UpdateService:
             logger.error(f"Extraction failed: {e}")
             return None
             
+    def merge_json_config(self, source_file, dest_file):
+        """Merge JSON configuration files, preserving existing values"""
+        try:
+            # Read existing config
+            with open(dest_file, 'r', encoding='utf-8') as f:
+                existing_config = json.load(f)
+            
+            # Read new config
+            with open(source_file, 'r', encoding='utf-8') as f:
+                new_config = json.load(f)
+            
+            # Track changes
+            added_keys = []
+            
+            # Add new keys from new config
+            for key, value in new_config.items():
+                if key not in existing_config:
+                    existing_config[key] = value
+                    added_keys.append(key)
+            
+            # Write merged config
+            with open(dest_file, 'w', encoding='utf-8') as f:
+                json.dump(existing_config, f, indent=4, ensure_ascii=False)
+            
+            if added_keys:
+                logger.info(f"Merged {dest_file.name}: Added new keys: {', '.join(added_keys)}")
+            else:
+                logger.info(f"Merged {dest_file.name}: No new keys to add")
+            
+            # Also save the new version as .new for reference
+            dest_new = dest_file.parent / f"{dest_file.name}.new"
+            shutil.copy2(source_file, dest_new)
+            logger.info(f"New version saved as: {dest_file.name}.new for reference")
+            
+            return True
+        except Exception as e:
+            logger.error(f"Failed to merge JSON config {dest_file.name}: {e}")
+            return False
+    
     def apply_update(self, source_dir):
         """Apply update by copying files"""
         try:
             logger.info("Applying update...")
             protected = set(self.config.get('protected_files', []))
             
+            # First pass: Handle app directory specially - complete replacement
+            app_dir_dest = self.base_dir / 'app'
+            app_dir_source = source_dir / 'app'
+            
+            if app_dir_source.exists() and app_dir_source.is_dir():
+                logger.info("Completely replacing app directory...")
+                
+                # Remove existing app directory
+                if app_dir_dest.exists():
+                    logger.info(f"Removing old app directory: {app_dir_dest}")
+                    shutil.rmtree(app_dir_dest)
+                
+                # Copy new app directory
+                logger.info(f"Copying new app directory from: {app_dir_source}")
+                shutil.copytree(app_dir_source, app_dir_dest)
+                logger.info("App directory replaced successfully")
+            
+            # Second pass: Update other files/directories
             for item in source_dir.iterdir():
-                # Skip protected files
+                # Skip app directory (already handled above)
+                if item.name == 'app':
+                    continue
+                
+                # Handle protected files with smart merging
                 if item.name in protected or any(item.name.startswith(p.rstrip('/')) for p in protected):
-                    logger.info(f"Skipping protected: {item.name}")
+                    # Skip protected directories
+                    if item.is_dir():
+                        logger.info(f"Skipping protected directory: {item.name}")
+                        continue
+                    
+                    dest = self.base_dir / item.name
+                    
+                    # JSON files: Smart merge
+                    if item.suffix == '.json' and dest.exists():
+                        logger.info(f"Smart merging protected JSON file: {item.name}")
+                        if self.merge_json_config(item, dest):
+                            continue
+                        else:
+                            # If merge fails, fall back to .new file
+                            logger.warning(f"Merge failed, saving as .new instead")
+                    
+                    # Python files and others: Save as .new
+                    dest_new = self.base_dir / f"{item.name}.new"
+                    shutil.copy2(item, dest_new)
+                    logger.info(f"Protected file saved as: {item.name}.new (please review and merge manually)")
                     continue
                     
                 dest = self.base_dir / item.name
@@ -225,16 +320,29 @@ class UpdateService:
     def cleanup(self, zip_path=None):
         """Clean up temporary files"""
         try:
-            if zip_path and zip_path.exists():
-                zip_path.unlink()
-                logger.info(f"Removed {zip_path}")
+            # Delete ZIP file
+            if zip_path:
+                if zip_path.exists():
+                    zip_path.unlink()
+                    logger.info(f"Removed update file: {zip_path}")
+                else:
+                    logger.warning(f"Update file not found: {zip_path}")
                 
+            # Delete temp directory
             temp_dir = self.base_dir / 'temp_update'
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
                 logger.info("Removed temp directory")
+                
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
+            # Try to force delete the zip file if it exists
+            if zip_path and zip_path.exists():
+                try:
+                    zip_path.unlink()
+                    logger.info(f"Forced removal of update file: {zip_path}")
+                except Exception as e2:
+                    logger.error(f"Could not force remove update file: {e2}")
             
     def restart_server(self):
         """Restart the application server"""
