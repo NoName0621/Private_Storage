@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_from_directory, current_app, abort
 from flask_login import login_required, current_user
 from .utils import save_file, get_user_files, delete_user_file, get_user_upload_dir, verify_file_integrity
-from .models import db
+from .models import db, User
 from werkzeug.utils import secure_filename
 import os
 
@@ -29,21 +29,33 @@ def upload_file():
         flash('No selected file', 'danger')
         return redirect(url_for('main.dashboard'))
         
-    filename, error = save_file(file, current_user)
-    if error:
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return {'status': 'error', 'message': error}, 400
-        flash(error, 'danger')
-    else:
-        # Update used bytes
-        file.seek(0, os.SEEK_END)
-        size = file.tell()
-        current_user.used_bytes += size
-        db.session.commit()
+    try:
+        # Lock user row to prevent race condition
+        user = User.query.with_for_update().get(current_user.id)
         
+        filename, error = save_file(file, user)
+        if error:
+            db.session.rollback()
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return {'status': 'error', 'message': error}, 400
+            flash(error, 'danger')
+        else:
+            # Update used bytes
+            file.seek(0, os.SEEK_END)
+            size = file.tell()
+            user.used_bytes += size
+            db.session.commit()
+            
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return {'status': 'success', 'message': 'File uploaded successfully', 'filename': filename}, 200
+            flash('File uploaded successfully.', 'success')
+            
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Upload failed: {e}")
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return {'status': 'success', 'message': 'File uploaded successfully', 'filename': filename}, 200
-        flash('File uploaded successfully.', 'success')
+            return {'status': 'error', 'message': 'Internal server error'}, 500
+        flash('Internal server error during upload.', 'danger')
         
     return redirect(url_for('main.dashboard'))
 
@@ -79,28 +91,30 @@ def upload_merge():
         
     try:
         from .utils import merge_chunks
-        saved_filename, error = merge_chunks(current_user.id, upload_id, filename, int(total_chunks), current_user)
+        
+        # Lock user row
+        user = User.query.with_for_update().get(current_user.id)
+        
+        saved_filename, error = merge_chunks(current_user.id, upload_id, filename, int(total_chunks), user)
         
         if error:
+            db.session.rollback()
             return {'status': 'error', 'message': error}, 400
             
         # Update used bytes
         # merge_chunks already saved the file, so we can check size
-        # But merge_chunks returns filename, we need full path to check size?
-        # Actually merge_chunks checks quota, so we assume it's fine.
-        # We need to add size to user.used_bytes
-        
-        # Get file size
         upload_dir = get_user_upload_dir(current_user.id)
         file_path = os.path.join(upload_dir, saved_filename)
         size = os.path.getsize(file_path)
         
-        current_user.used_bytes += size
+        user.used_bytes += size
         db.session.commit()
         
         flash('File uploaded successfully.', 'success')
         return {'status': 'success', 'filename': saved_filename}, 200
     except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Merge failed: {e}")
         return {'status': 'error', 'message': str(e)}, 500
 
 @main_bp.route('/download/<filename>')
@@ -115,6 +129,18 @@ def download_file(filename):
         return redirect(url_for('main.dashboard'))
         
     upload_dir = get_user_upload_dir(current_user.id)
+    file_path = os.path.join(upload_dir, filename)
+    
+    # Directory traversal check
+    file_path = os.path.abspath(file_path)
+    upload_dir = os.path.abspath(upload_dir)
+    
+    if not file_path.startswith(upload_dir):
+        abort(403)
+        
+    if not os.path.exists(file_path):
+        abort(404)
+
     return send_from_directory(upload_dir, filename, as_attachment=True)
 
 @main_bp.route('/delete/<filename>', methods=['POST'])

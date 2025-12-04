@@ -11,8 +11,11 @@ class Config:
 
     # Security
     SESSION_COOKIE_HTTPONLY = True
-    SESSION_COOKIE_SECURE = False  # Requires HTTPS (Cloudflare) - Disabled for local dev
     SESSION_COOKIE_SAMESITE = 'Lax'
+    
+    # HTTPS Enforcement
+    ENV = os.environ.get('FLASK_ENV', 'development')
+    SESSION_COOKIE_SECURE = (ENV == 'production')
     
     # Rate Limiting
     RATELIMIT_DEFAULT = "1000000 per day"

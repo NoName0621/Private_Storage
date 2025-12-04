@@ -24,7 +24,8 @@ def load_metadata(user_id):
         try:
             with open(metadata_path, 'r') as f:
                 return json.load(f)
-        except:
+        except (json.JSONDecodeError, IOError) as e:
+            current_app.logger.error(f"Failed to load metadata for user {user_id}: {e}")
             return {}
     return {}
 
@@ -65,6 +66,14 @@ def save_file(file, user):
     
     upload_dir = get_user_upload_dir(user.id)
     file_path = os.path.join(upload_dir, filename)
+
+    # Auto-rename if exists
+    base, ext = os.path.splitext(filename)
+    counter = 1
+    while os.path.exists(file_path):
+        filename = f"{base}_{counter}{ext}"
+        file_path = os.path.join(upload_dir, filename)
+        counter += 1
     
     # Calculate hash before saving (or after, but stream is available now)
     file_hash = calculate_file_hash(file)
@@ -166,24 +175,51 @@ def merge_chunks(user_id, upload_id, filename, total_chunks, user):
         
     upload_dir = get_user_upload_dir(user.id)
     file_path = os.path.join(upload_dir, filename)
+
+    # Auto-rename if exists
+    base, ext = os.path.splitext(filename)
+    counter = 1
+    while os.path.exists(file_path):
+        filename = f"{base}_{counter}{ext}"
+        file_path = os.path.join(upload_dir, filename)
+        counter += 1
     
-    # Merge
-    with open(file_path, "wb") as outfile:
-        for i in range(total_chunks):
-            chunk_path = os.path.join(chunk_dir, f"{i}")
-            with open(chunk_path, "rb") as infile:
-                outfile.write(infile.read())
-                
-    # Calculate hash
-    file_hash = calculate_file_hash_from_path(file_path)
-    
-    # Save metadata
-    metadata = load_metadata(user.id)
-    metadata[filename] = file_hash
-    save_metadata(user.id, metadata)
-    
-    # Cleanup chunks
-    import shutil
-    shutil.rmtree(chunk_dir)
-    
-    return filename, None
+    try:
+        # Merge
+        with open(file_path, "wb") as outfile:
+            for i in range(total_chunks):
+                chunk_path = os.path.join(chunk_dir, f"{i}")
+                with open(chunk_path, "rb") as infile:
+                    outfile.write(infile.read())
+                    
+        # Calculate hash
+        file_hash = calculate_file_hash_from_path(file_path)
+        
+        # Save metadata
+        metadata = load_metadata(user.id)
+        metadata[filename] = file_hash
+        save_metadata(user.id, metadata)
+        
+        return filename, None
+    except Exception as e:
+        # Clean up partial file if merge failed
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise e
+    finally:
+        # Cleanup chunks
+        import shutil
+        if os.path.exists(chunk_dir):
+            shutil.rmtree(chunk_dir)
+
+def validate_password(password):
+    """Validate password strength"""
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long."
+    if not any(c.isupper() for c in password):
+        return False, "Password must contain at least one uppercase letter."
+    if not any(c.islower() for c in password):
+        return False, "Password must contain at least one lowercase letter."
+    if not any(c.isdigit() for c in password):
+        return False, "Password must contain at least one number."
+    return True, None

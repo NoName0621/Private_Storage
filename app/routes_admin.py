@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
 from flask_login import login_required, current_user
 from .models import User, db
+from .utils import validate_password
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin_secure_panel_z8x9')
 
@@ -24,6 +25,11 @@ def create_user():
         flash('Username already exists.', 'danger')
         return redirect(url_for('admin.index'))
         
+    is_valid, error = validate_password(password)
+    if not is_valid:
+        flash(error, 'danger')
+        return redirect(url_for('admin.index'))
+
     user = User(username=username, quota_bytes=quota_gb * 1024 * 1024 * 1024)
     user.set_password(password)
     db.session.add(user)
@@ -50,6 +56,11 @@ def change_password():
         flash('Incorrect current password.', 'danger')
         return redirect(url_for('admin.index'))
         
+    is_valid, error = validate_password(new_password)
+    if not is_valid:
+        flash(error, 'danger')
+        return redirect(url_for('admin.index'))
+
     current_user.set_password(new_password)
     db.session.commit()
     flash('Password updated successfully.', 'success')
