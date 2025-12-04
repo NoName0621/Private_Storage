@@ -65,6 +65,14 @@ def save_file(file, user):
     
     upload_dir = get_user_upload_dir(user.id)
     file_path = os.path.join(upload_dir, filename)
+
+    # Auto-rename if file exists
+    base, ext = os.path.splitext(filename)
+    counter = 1
+    while os.path.exists(file_path):
+        filename = f"{base}_{counter}{ext}"
+        file_path = os.path.join(upload_dir, filename)
+        counter += 1
     
     # Calculate hash before saving (or after, but stream is available now)
     file_hash = calculate_file_hash(file)
@@ -166,6 +174,14 @@ def merge_chunks(user_id, upload_id, filename, total_chunks, user):
         
     upload_dir = get_user_upload_dir(user.id)
     file_path = os.path.join(upload_dir, filename)
+
+    # Auto-rename if file exists
+    base, ext = os.path.splitext(filename)
+    counter = 1
+    while os.path.exists(file_path):
+        filename = f"{base}_{counter}{ext}"
+        file_path = os.path.join(upload_dir, filename)
+        counter += 1
     
     # Merge
     with open(file_path, "wb") as outfile:
