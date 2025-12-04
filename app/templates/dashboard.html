@@ -12,20 +12,24 @@
         </div>
     </div>
 
-    <form id="upload-form" method="POST" action="{{ url_for('main.upload_file') }}" enctype="multipart/form-data"
-        class="upload-form">
+    <form id="upload-form" class="upload-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group">
-            <label for="file">Upload File</label>
-            <input type="file" id="file" name="file" required>
+            <label for="file">Upload Files</label>
+            <input type="file" id="file" name="file" multiple required>
         </div>
-        <button type="submit" class="btn btn-primary" id="upload-btn">Upload</button>
+        <div style="display: flex; gap: 10px;">
+            <button type="submit" class="btn btn-primary" id="upload-btn">Upload</button>
+            <button type="button" class="btn btn-danger" id="cancel-btn" style="display: none;">Cancel</button>
+        </div>
     </form>
 
     <!-- Upload Progress -->
     <div id="upload-progress" style="display: none; margin-top: 20px;">
         <div style="margin-bottom: 10px;">
-            <strong>Upload Progress:</strong> <span id="progress-percent">0</span>%
+            <strong>Current File:</strong> <span id="current-filename"></span><br>
+            <strong>Progress:</strong> <span id="progress-percent">0</span>%
+            (<span id="files-processed">0</span>/<span id="total-files">0</span> files)
         </div>
         <div class="quota-bar">
             <div id="progress-bar" class="quota-fill" style="width: 0%; background-color: #4CAF50;"></div>
@@ -40,6 +44,7 @@
             <tr>
                 <th>Filename</th>
                 <th>Size</th>
+                <th>Share</th>
                 <th>Actions</th>
             </tr>
         </thead>
@@ -49,19 +54,38 @@
                 <td>{{ file.name }}</td>
                 <td>{{ (file.size / 1024 / 1024)|round(2) }} MB</td>
                 <td>
-                    <a href="{{ url_for('main.download_file', filename=file.name) }}" class="btn btn-primary"
-                        style="padding: 4px 8px; font-size: 12px;">Download</a>
-                    <form action="{{ url_for('main.delete_file', filename=file.name) }}" method="POST"
-                        style="display: inline;">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit" class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;"
-                            onclick="return confirm('Are you sure?')">Delete</button>
-                    </form>
+                    <div style="display: flex; gap: 5px; flex-wrap: wrap; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 5px;">
+                            <input type="checkbox" id="share-{{ loop.index }}" {% if file.share_token %}checked{% endif
+                                %} onchange="toggleShare('{{ file.name }}', this.checked)" style="cursor: pointer;">
+                            <label for="share-{{ loop.index }}"
+                                style="margin: 0; cursor: pointer; font-size: 12px;">Share</label>
+                        </div>
+
+                        {% if file.share_token %}
+                        <button
+                            onclick="copyShareLink('{{ url_for('main.public_download', token=file.share_token, _external=True) }}')"
+                            class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px;">Copy Link</button>
+                        {% endif %}
+                    </div>
+                </td>
+                <td>
+                    <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+                        <a href="{{ url_for('main.download_file', filename=file.name) }}" class="btn btn-primary"
+                            style="padding: 4px 8px; font-size: 12px;">Download</a>
+
+                        <form action="{{ url_for('main.delete_file', filename=file.name) }}" method="POST"
+                            style="display: inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;"
+                                onclick="return confirm('Are you sure?')">Delete</button>
+                        </form>
+                    </div>
                 </td>
             </tr>
             {% else %}
             <tr>
-                <td colspan="3" style="text-align: center;">No files uploaded yet.</td>
+                <td colspan="4" style="text-align: center;">No files uploaded yet.</td>
             </tr>
             {% endfor %}
         </tbody>
@@ -69,154 +93,229 @@
 </div>
 
 <script>
+    const csrfToken = document.querySelector('input[name="csrf_token"]').value;
+    let isUploading = false;
+    let abortController = null;
+    let currentUploadId = null;
+
+    window.onbeforeunload = function () {
+        if (isUploading) {
+            return "Upload in progress. Are you sure you want to leave? Your upload will be cancelled.";
+        }
+    };
+
+    async function toggleShare(filename, shouldShare) {
+        try {
+            const formData = new FormData();
+            formData.append('csrf_token', csrfToken);
+
+            const url = shouldShare
+                ? `/share/${encodeURIComponent(filename)}`
+                : `/unshare/${encodeURIComponent(filename)}`;
+
+            const response = await fetch(url, {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+
+            const result = await response.json();
+            if (result.status === 'success') {
+                if (shouldShare && result.url) {
+                    const message = `Share link generated:\n${result.url}\n\nYou can copy it using the "Copy Link" button.`;
+                    alert(message);
+                }
+                location.reload();
+            } else {
+                alert('Error: ' + result.message);
+                location.reload();
+            }
+        } catch (e) {
+            alert('Error: ' + e.message);
+            location.reload();
+        }
+    }
+
+    function copyShareLink(url) {
+        navigator.clipboard.writeText(url).then(() => {
+            alert('Link copied to clipboard!');
+        });
+    }
+
     document.getElementById('upload-form').addEventListener('submit', async function (e) {
         e.preventDefault();
+        if (isUploading) return;
 
         const fileInput = document.getElementById('file');
-        const file = fileInput.files[0];
+        const files = Array.from(fileInput.files);
 
-        if (!file) {
-            alert('Please select a file');
+        if (files.length === 0) {
+            alert('Please select files');
             return;
         }
 
-        // Configuration
-        const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB
-        const MAX_RETRIES = 3;
+        isUploading = true;
+        abortController = new AbortController();
 
-        // UI Elements
         const progressDiv = document.getElementById('upload-progress');
         const progressBar = document.getElementById('progress-bar');
         const progressPercent = document.getElementById('progress-percent');
         const uploadSpeed = document.getElementById('upload-speed');
         const uploadBtn = document.getElementById('upload-btn');
-        const csrfToken = document.querySelector('input[name="csrf_token"]').value;
+        const cancelBtn = document.getElementById('cancel-btn');
+        const currentFilenameSpan = document.getElementById('current-filename');
+        const filesProcessedSpan = document.getElementById('files-processed');
+        const totalFilesSpan = document.getElementById('total-files');
 
-        // State
-        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-        const uploadId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
-        let chunksUploaded = 0;
-        let startTime = Date.now();
-        let lastUpdateTime = startTime;
-        let lastLoadedBytes = 0;
-
-        // Speed smoothing
-        const speedReadings = [];
-        const MAX_SPEED_READINGS = 5;
-
-        // Reset UI
         progressDiv.style.display = 'block';
         uploadBtn.disabled = true;
-        uploadBtn.textContent = 'Uploading...';
-        progressBar.style.width = '0%';
-        progressPercent.textContent = '0';
-        uploadSpeed.textContent = '0';
+        cancelBtn.style.display = 'inline-block';
+        filesProcessedSpan.textContent = '0';
+        totalFilesSpan.textContent = files.length;
 
-        // Helper: Upload a single chunk
-        async function uploadChunk(chunkIndex, start, end) {
-            const chunk = file.slice(start, end);
-            const formData = new FormData();
-            formData.append('file', chunk);
-            formData.append('upload_id', uploadId);
-            formData.append('chunk_index', chunkIndex);
-            formData.append('csrf_token', csrfToken);
-
-            for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-                try {
-                    const response = await fetch('{{ url_for("main.upload_chunk") }}', {
-                        method: 'POST',
-                        body: formData,
-                        headers: {
-                            'X-Requested-With': 'XMLHttpRequest'
-                        }
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-
-                    const result = await response.json();
-                    if (result.status !== 'success') {
-                        throw new Error(result.message || 'Unknown error');
-                    }
-                    return; // Success
-                } catch (error) {
-                    console.error(`Chunk ${chunkIndex} attempt ${attempt + 1} failed:`, error);
-                    if (attempt === MAX_RETRIES - 1) throw error;
-                    await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1))); // Exponential backoff
-                }
-            }
-        }
+        const CHUNK_SIZE = 2 * 1024 * 1024;
+        const MAX_RETRIES = 3;
 
         try {
-            for (let i = 0; i < totalChunks; i++) {
-                const start = i * CHUNK_SIZE;
-                const end = Math.min(start + CHUNK_SIZE, file.size);
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                currentFilenameSpan.textContent = file.name;
+                filesProcessedSpan.textContent = i + 1;
 
-                await uploadChunk(i, start, end);
+                progressBar.style.width = '0%';
+                progressPercent.textContent = '0';
 
-                chunksUploaded++;
+                const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+                currentUploadId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+                let chunksUploaded = 0;
+                let lastUpdateTime = Date.now();
+                let lastLoadedBytes = 0;
+                const speedReadings = [];
 
-                // Update Progress
-                const percentComplete = (chunksUploaded / totalChunks) * 100;
-                progressBar.style.width = percentComplete + '%';
-                progressPercent.textContent = percentComplete.toFixed(1);
+                for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+                    if (abortController.signal.aborted) throw new Error('Cancelled');
 
-                // Update Speed (Smoothed)
-                const currentTime = Date.now();
-                const timeDiff = (currentTime - lastUpdateTime) / 1000; // seconds
+                    const start = chunkIdx * CHUNK_SIZE;
+                    const end = Math.min(start + CHUNK_SIZE, file.size);
+                    const chunk = file.slice(start, end);
 
-                if (timeDiff >= 0.5 || i === totalChunks - 1) { // Update every 500ms or at end
-                    const totalUploadedSoFar = Math.min((i + 1) * CHUNK_SIZE, file.size);
-                    const bytesDiffForSpeed = totalUploadedSoFar - lastLoadedBytes;
+                    const formData = new FormData();
+                    formData.append('file', chunk);
+                    formData.append('upload_id', currentUploadId);
+                    formData.append('chunk_index', chunkIdx);
+                    formData.append('csrf_token', csrfToken);
 
-                    const speedBps = bytesDiffForSpeed / timeDiff;
-                    const speedMbps = (speedBps * 8) / (1024 * 1024);
+                    let uploaded = false;
+                    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                        try {
+                            const response = await fetch('{{ url_for("main.upload_chunk") }}', {
+                                method: 'POST',
+                                body: formData,
+                                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                                signal: abortController.signal
+                            });
 
-                    // Smoothing
-                    speedReadings.push(speedMbps);
-                    if (speedReadings.length > MAX_SPEED_READINGS) speedReadings.shift();
-                    const avgSpeed = speedReadings.reduce((a, b) => a + b, 0) / speedReadings.length;
+                            if (!response.ok) {
+                                const res = await response.json();
+                                throw new Error(res.message || `HTTP ${response.status}`);
+                            }
+                            uploaded = true;
+                            break;
+                        } catch (err) {
+                            if (attempt === MAX_RETRIES - 1 || abortController.signal.aborted) throw err;
+                            await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+                        }
+                    }
 
-                    uploadSpeed.textContent = avgSpeed.toFixed(2);
+                    chunksUploaded++;
 
-                    lastUpdateTime = currentTime;
-                    lastLoadedBytes = totalUploadedSoFar;
+                    const percent = (chunksUploaded / totalChunks) * 100;
+                    progressBar.style.width = percent + '%';
+                    progressPercent.textContent = percent.toFixed(1);
+
+                    const now = Date.now();
+                    const timeDiff = (now - lastUpdateTime) / 1000;
+                    if (timeDiff >= 0.5 || chunkIdx === totalChunks - 1) {
+                        const loaded = Math.min((chunkIdx + 1) * CHUNK_SIZE, file.size);
+                        const bytesDiff = loaded - lastLoadedBytes;
+                        const speedMbps = (bytesDiff * 8) / (1024 * 1024) / timeDiff;
+
+                        speedReadings.push(speedMbps);
+                        if (speedReadings.length > 5) speedReadings.shift();
+                        const avgSpeed = speedReadings.reduce((a, b) => a + b, 0) / speedReadings.length;
+
+                        uploadSpeed.textContent = avgSpeed.toFixed(2);
+                        lastUpdateTime = now;
+                        lastLoadedBytes = loaded;
+                    }
+                }
+
+                if (abortController.signal.aborted) throw new Error('Cancelled');
+
+                const mergeData = new FormData();
+                mergeData.append('upload_id', currentUploadId);
+                mergeData.append('filename', file.name);
+                mergeData.append('total_chunks', totalChunks);
+                mergeData.append('csrf_token', csrfToken);
+
+                const mergeRes = await fetch('{{ url_for("main.upload_merge") }}', {
+                    method: 'POST',
+                    body: mergeData,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    signal: abortController.signal
+                });
+
+                if (!mergeRes.ok) {
+                    const res = await mergeRes.json();
+                    throw new Error(res.message || 'Merge failed');
                 }
             }
 
-            // All chunks uploaded, trigger merge
-            uploadBtn.textContent = 'Processing...';
-
-            const formData = new FormData();
-            formData.append('upload_id', uploadId);
-            formData.append('filename', file.name);
-            formData.append('total_chunks', totalChunks);
-            formData.append('csrf_token', csrfToken);
-
-            const response = await fetch('{{ url_for("main.upload_merge") }}', {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            });
-
-            if (!response.ok) throw new Error(`Merge failed: ${response.status}`);
-
-            const result = await response.json();
-            if (result.status === 'success') {
-                alert('File uploaded successfully!');
-                location.reload();
-            } else {
-                throw new Error(result.message || 'Merge failed');
-            }
+            alert('All files uploaded successfully!');
+            isUploading = false;
+            location.reload();
 
         } catch (error) {
-            alert('Upload failed: ' + error.message);
-            progressDiv.style.display = 'none';
+            if (error.message === 'Cancelled') {
+                console.log('Upload cancelled');
+            } else {
+                alert('Upload failed: ' + error.message);
+            }
+        } finally {
+            isUploading = false;
             uploadBtn.disabled = false;
-            uploadBtn.textContent = 'Upload';
+            cancelBtn.style.display = 'none';
+            progressDiv.style.display = 'none';
+            currentUploadId = null;
+        }
+    });
+
+    document.getElementById('cancel-btn').addEventListener('click', async function () {
+        if (!isUploading) return;
+
+        if (confirm('Are you sure you want to cancel the upload?')) {
+            abortController.abort();
+            isUploading = false;
+
+            if (currentUploadId) {
+                const formData = new FormData();
+                formData.append('upload_id', currentUploadId);
+                formData.append('csrf_token', csrfToken);
+
+                try {
+                    await fetch('{{ url_for("main.upload_cancel") }}', {
+                        method: 'POST',
+                        body: formData,
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    });
+                } catch (e) {
+                    console.error('Cleanup failed', e);
+                }
+            }
+
+            document.getElementById('upload-progress').style.display = 'none';
+            document.getElementById('upload-btn').disabled = false;
+            this.style.display = 'none';
         }
     });
 </script>

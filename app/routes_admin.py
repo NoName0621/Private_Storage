@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
 from flask_login import login_required, current_user
 from .models import User, db
+import os
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin_secure_panel_z8x9')
 
@@ -10,11 +11,17 @@ def restrict_admin():
         abort(404) # Hide existence
 
 @admin_bp.route('/')
+@login_required
 def index():
+    if not current_user.is_admin:
+        flash('Access denied.', 'danger')
+        return redirect(url_for('main.dashboard'))
+    
     users = User.query.all()
     return render_template('admin.html', users=users)
 
 @admin_bp.route('/create_user', methods=['POST'])
+@login_required
 def create_user():
     username = request.form.get('username')
     password = request.form.get('password')
@@ -33,6 +40,7 @@ def create_user():
     return redirect(url_for('admin.index'))
 
 @admin_bp.route('/update_quota/<int:user_id>', methods=['POST'])
+@login_required
 def update_quota(user_id):
     user = User.query.get_or_404(user_id)
     quota_gb = request.form.get('quota_gb', type=int)
@@ -42,6 +50,7 @@ def update_quota(user_id):
     return redirect(url_for('admin.index'))
 
 @admin_bp.route('/change_password', methods=['POST'])
+@login_required
 def change_password():
     current_password = request.form.get('current_password')
     new_password = request.form.get('new_password')
@@ -56,6 +65,7 @@ def change_password():
     return redirect(url_for('admin.index'))
 
 @admin_bp.route('/toggle_admin/<int:user_id>', methods=['POST'])
+@login_required
 def toggle_admin(user_id):
     if user_id == current_user.id:
         flash('Cannot change your own admin status.', 'danger')
@@ -67,4 +77,28 @@ def toggle_admin(user_id):
     
     status = "Admin" if user.is_admin else "User"
     flash(f'User {user.username} is now {status}.', 'success')
+    return redirect(url_for('admin.index'))
+
+@admin_bp.route('/delete_user/<int:user_id>', methods=['POST'])
+@login_required
+def delete_user(user_id):
+    if user_id == current_user.id:
+        flash('Cannot delete your own account.', 'danger')
+        return redirect(url_for('admin.index'))
+        
+    user = User.query.get_or_404(user_id)
+    username = user.username
+    
+    # Delete all user files
+    from .utils import get_user_upload_dir
+    import shutil
+    user_dir = get_user_upload_dir(user_id)
+    if os.path.exists(user_dir):
+        shutil.rmtree(user_dir)
+    
+    # Delete user from database
+    db.session.delete(user)
+    db.session.commit()
+    
+    flash(f'User {username} and all their files have been deleted.', 'success')
     return redirect(url_for('admin.index'))
