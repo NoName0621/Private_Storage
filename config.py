@@ -17,3 +17,8 @@ class Config:
     # Rate Limiting
     RATELIMIT_DEFAULT = "1000000 per day"
     RATELIMIT_STORAGE_URL = "memory://"
+    
+    # Server Settings
+    SERVER_WORKERS = 4  # Gunicorn worker count (Linux/Mac)
+    SERVER_THREADS = 4  # Waitress thread count (Windows)
+

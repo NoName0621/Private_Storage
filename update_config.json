@@ -1,0 +1,13 @@
+{
+    "github_repo": "NoName0621/Private_Storage",
+    "check_interval_seconds": 3600,
+    "backup_enabled": true,
+    "protected_files": [
+        "config.py",
+        "storage.db",
+        "uploads/",
+        ".env",
+        "version.txt",
+        "update_config.json"
+    ]
+}
