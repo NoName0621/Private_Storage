@@ -68,35 +68,6 @@ python start_server.py
 
 ---
 
-### Cloudflare Tunnel でインターネットに公開
-
-ポート開放を行わずに、安全にローカルサーバーをインターネットに公開するには **Cloudflare Tunnel** が最も推奨される方法です。
-
-#### セットアップ手順：
-
-1. **Cloudflare アカウント作成**: [Cloudflare](https://www.cloudflare.com/) でアカウントを作成し、ドメインを登録します（持っていない場合）。
-
-2. **cloudflared のインストール**:
-   - **Windows**: [ダウンロードページ](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/) から `.msi` をダウンロードしてインストール。
-   - **Mac**: `brew install cloudflare/cloudflare/cloudflared`
-   - **Linux**: パッケージマネージャーまたはバイナリでインストール。
-
-3. **トンネルの作成**:
-   コマンドラインで以下を実行し、ブラウザ認証を行います。
-   ```bash
-   cloudflared tunnel login
-   ```
-
-4. **トンネルの起動**:
-   以下のコマンドで、ローカルの 5000 番ポートを一時的に公開できます（Quick Tunnel）。
-   ```bash
-   cloudflared tunnel --url http://127.0.0.1:5000
-   ```
-   - 実行後、`https://<random-name>.trycloudflare.com` のようなURLが表示されます。これが公開URLです。
-   - **永続的なドメインで使用する場合**は、Cloudflare Zero Trust ダッシュボードから Tunnel を作成し、`http://127.0.0.1:5000` をターゲットに設定してください。
-
----
-
 ## 高度な起動方法（カスタマイズが必要な場合）
 
 OS に合わせて手動でサーバーを起動したい場合や、カスタマイズが必要な場合は、以下の方法を使用できます。
@@ -125,6 +96,35 @@ gunicorn -w 4 -b 127.0.0.1:5000 run:app
 
 - **Ngrok**: `ngrok http 5000` で公開できます（テスト用途に便利）。
 - **VPS (Ubuntuなど)**: Nginx をリバースプロキシとして設定し、Gunicorn と連携させます。
+
+---
+
+### Cloudflare Tunnel でインターネットに公開
+
+ポート開放を行わずに、安全にローカルサーバーをインターネットに公開するには **Cloudflare Tunnel** が最も推奨される方法です。
+
+#### セットアップ手順：
+
+1. **Cloudflare アカウント作成**: [Cloudflare](https://www.cloudflare.com/) でアカウントを作成し、ドメインを登録します（持っていない場合）。
+
+2. **cloudflared のインストール**:
+   - **Windows**: [ダウンロードページ](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/) から `.msi` をダウンロードしてインストール。
+   - **Mac**: `brew install cloudflare/cloudflare/cloudflared`
+   - **Linux**: パッケージマネージャーまたはバイナリでインストール。
+
+3. **トンネルの作成**:
+   コマンドラインで以下を実行し、ブラウザ認証を行います。
+   ```bash
+   cloudflared tunnel login
+   ```
+
+4. **トンネルの起動**:
+   以下のコマンドで、ローカルの 5000 番ポートを一時的に公開できます（Quick Tunnel）。
+   ```bash
+   cloudflared tunnel --url http://127.0.0.1:5000
+   ```
+   - 実行後、`https://<random-name>.trycloudflare.com` のようなURLが表示されます。これが公開URLです。
+   - **永続的なドメインで使用する場合**は、Cloudflare Zero Trust ダッシュボードから Tunnel を作成し、`http://127.0.0.1:5000` をターゲットに設定してください。
 
 ---
 
@@ -273,4 +273,5 @@ Special thanks to [きゅすみゃ](https://github.com/kyusumya) for their contr
 ## ライセンス
 
 MIT License
+
 
