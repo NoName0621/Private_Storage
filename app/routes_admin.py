@@ -89,6 +89,10 @@ def delete_user(user_id):
     user = User.query.get_or_404(user_id)
     username = user.username
     
+    if username == 'admin':
+        flash('Cannot delete the root admin account.', 'danger')
+        return redirect(url_for('admin.index'))
+    
     # Delete all user files
     from .utils import get_user_upload_dir
     import shutil
