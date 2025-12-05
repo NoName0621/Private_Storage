@@ -66,8 +66,6 @@ python start_server.py
 #### 停止方法：
 - `Ctrl+C` を押すと、すべてのプロセスが正常に終了します
 
----
-
 ## 高度な起動方法（カスタマイズが必要な場合）
 
 OS に合わせて手動でサーバーを起動したい場合や、カスタマイズが必要な場合は、以下の方法を使用できます。
@@ -273,5 +271,6 @@ Special thanks to [きゅすみゃ](https://github.com/kyusumya) for their contr
 ## ライセンス
 
 MIT License
+
 
 
