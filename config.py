@@ -19,5 +19,6 @@ class Config:
     RATELIMIT_STORAGE_URL = "memory://"
     
     # Server Settings
-    SERVER_WORKERS = int(os.environ.get('SERVER_WORKERS') or 4)  # Gunicorn worker count (Linux/Mac)
-    SERVER_THREADS = int(os.environ.get('SERVER_THREADS') or 4)  # Waitress thread count (Windows)
+    SERVER_WORKERS = 4  # Gunicorn worker count (Linux/Mac)
+    SERVER_THREADS = 4  # Waitress thread count (Windows)
+
