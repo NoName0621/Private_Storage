@@ -47,24 +47,35 @@ class ServerManager:
         except Exception as e:
             print(f"Database initialization: {e}")
         
+        # Load config for server settings
+        try:
+            from config import Config
+            workers = Config.SERVER_WORKERS
+            threads = Config.SERVER_THREADS
+        except Exception as e:
+            print(f"Warning: Could not load config, using defaults: {e}")
+            workers = 4
+            threads = 4
+        
         if system == 'Windows':
             # Use Waitress for Windows
             cmd = [
                 sys.executable,
                 '-m', 'waitress',
+                f'--threads={threads}',
                 '--listen=127.0.0.1:5000',
                 'run:app'
             ]
-            print("Starting Waitress server on http://127.0.0.1:5000")
+            print(f"Starting Waitress server on http://127.0.0.1:5000 (threads: {threads})")
         else:
             # Use Gunicorn for Mac/Linux
             cmd = [
                 'gunicorn',
-                '-w', '4',
+                '-w', str(workers),
                 '-b', '127.0.0.1:5000',
                 'run:app'
             ]
-            print("Starting Gunicorn server on http://127.0.0.1:5000")
+            print(f"Starting Gunicorn server on http://127.0.0.1:5000 (workers: {workers})")
             
         try:
             self.server_process = subprocess.Popen(cmd, cwd=str(self.base_dir))
