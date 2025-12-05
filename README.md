@@ -271,6 +271,3 @@ Special thanks to [きゅすみゃ](https://github.com/kyusumya) for their contr
 ## ライセンス
 
 MIT License
-
-
-
