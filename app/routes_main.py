@@ -11,11 +11,57 @@ main_bp = Blueprint('main', __name__)
 @login_required
 def dashboard():
     # Cleanup temp files on dashboard load to prevent quota lock-out from failed uploads
-    from .utils import cleanup_user_temp
+    from .utils import cleanup_user_temp, format_size
     cleanup_user_temp(current_user.id)
     
-    files = get_user_files(current_user.id)
-    return render_template('dashboard.html', files=files, user=current_user)
+    subpath = request.args.get('path', '')
+    # Security check for subpath (basic) - utils handles the real check
+    if '..' in subpath or subpath.startswith('/') or subpath.startswith('\\'):
+        subpath = ''
+        
+    files = get_user_files(current_user.id, subpath)
+    
+    # Breadcrumbs
+    breadcrumbs = []
+    if subpath:
+        parts = subpath.replace('\\', '/').split('/')
+        current_path = ''
+        for part in parts:
+            if not part: continue
+            current_path = os.path.join(current_path, part)
+            breadcrumbs.append({'name': part, 'path': current_path.replace('\\', '/')})
+            
+    return render_template('dashboard.html', files=files, user=current_user, current_path=subpath, breadcrumbs=breadcrumbs)
+
+@main_bp.route('/create_folder', methods=['POST'])
+@login_required
+def create_folder():
+    folder_name = request.form.get('folder_name')
+    current_path = request.form.get('current_path', '')
+    
+    if not folder_name:
+        flash('Folder name is required.', 'danger')
+        return redirect(url_for('main.dashboard', path=current_path))
+        
+    from .utils import create_user_folder
+    success, error = create_user_folder(current_user.id, current_path, folder_name)
+    
+    if success:
+        flash('Folder created successfully.', 'success')
+    else:
+        flash(f'Error creating folder: {error}', 'danger')
+        
+    return redirect(url_for('main.dashboard', path=current_path))
+
+@main_bp.route('/preview/zip/<path:filename>')
+@login_required
+def preview_zip(filename):
+    # This route returns JSON content of the zip file
+    from .utils import get_zip_contents
+    contents = get_zip_contents(current_user.id, filename)
+    if contents is None:
+         return {'status': 'error', 'message': 'Could not read file'}, 400
+    return {'status': 'success', 'contents': contents}, 200
 
 @main_bp.route('/upload', methods=['POST'])
 @login_required
@@ -33,8 +79,10 @@ def upload_file():
         flash('No selected file', 'danger')
         return redirect(url_for('main.dashboard'))
         
+    current_path = request.form.get('current_path', '')
+    
     for file in files:
-        filename, error = save_file(file, current_user)
+        filename, error = save_file(file, current_user, current_path)
         if error:
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
                 return {'status': 'error', 'message': error}, 400
@@ -80,20 +128,22 @@ def upload_merge():
     upload_id = request.form.get('upload_id')
     filename = request.form.get('filename')
     total_chunks = request.form.get('total_chunks')
+    current_path = request.form.get('current_path', '')
     
     if not upload_id or not filename or not total_chunks:
         return {'status': 'error', 'message': 'Missing parameters'}, 400
         
     try:
         from .utils import merge_chunks
-        saved_filename, error = merge_chunks(current_user.id, upload_id, filename, int(total_chunks), current_user)
+        saved_filename, error = merge_chunks(current_user.id, upload_id, filename, int(total_chunks), current_user, current_path)
         
         if error:
             return {'status': 'error', 'message': error}, 400
             
         # Update used bytes
         upload_dir = get_user_upload_dir(current_user.id)
-        file_path = os.path.join(upload_dir, saved_filename)
+        target_dir = os.path.join(upload_dir, current_path)
+        file_path = os.path.join(target_dir, saved_filename)
         size = os.path.getsize(file_path)
         
         current_user.used_bytes += size
@@ -116,13 +166,23 @@ def upload_cancel():
     else:
         return {'status': 'error', 'message': 'Upload not found or already cleaned'}, 404
 
-@main_bp.route('/download/<filename>')
+@main_bp.route('/download/<path:filename>')
 @login_required
 def download_file(filename):
-    # Security check: filename must be secure
-    filename = secure_filename(filename)
+    # filename here is actually a path relative to user's root
+    # Security check: ensure path stays within user directory
+    # utils.get_user_upload_dir handles the base, we need to ensure filename component is safe
     
-    # Verify integrity
+    # We can rely on send_from_directory for basic traversal protection, 
+    # but we should also check our own logic.
+    
+    # Split path to verify segments if needed, or just rely on secure_filename for the final component?
+    # Actually, filename can be "folder/file.txt". fast_safe_join used by send_from_directory is best.
+    
+    # We need to verify integrity. Our verify_file_integrity might expect just a filename or relative path.
+    # Let's check utils.verify_file_integrity. It does: file_path = os.path.join(upload_dir, filename)
+    # So if we pass "folder/file.txt", it joins correctly.
+    
     if not verify_file_integrity(current_user.id, filename):
         flash('File integrity check failed! The file may be corrupted.', 'danger')
         return redirect(url_for('main.dashboard'))
@@ -145,6 +205,40 @@ def delete_file(filename):
         flash('File not found.', 'danger')
         
     return redirect(url_for('main.dashboard'))
+
+@main_bp.route('/delete_folder', methods=['POST'])
+@login_required
+def delete_folder():
+    folder_path = request.form.get('folder_path')
+    current_path = request.form.get('current_path', '')
+    
+    if not folder_path:
+        flash('Folder path is required.', 'danger')
+        return redirect(url_for('main.dashboard', path=current_path))
+        
+    from .utils import delete_user_folder
+    
+    # folder_path coming from form is likely relative to user root, or actually just the folder name if in current_path?
+    # In dashboard.html we will pass `file.path` which is relative to user root.
+    
+    if delete_user_folder(current_user.id, folder_path):
+        # Recalculate usage
+        # Since we deleted a folder, it's safest to recalculate all
+        upload_dir = get_user_upload_dir(current_user.id)
+        total_size = 0
+        for root, dirs, filenames in os.walk(upload_dir):
+            for f in filenames:
+                fp = os.path.join(root, f)
+                total_size += os.path.getsize(fp)
+                
+        current_user.used_bytes = total_size
+        db.session.commit()
+        
+        flash('Folder deleted.', 'success')
+    else:
+        flash('Error deleting folder.', 'danger')
+        
+    return redirect(url_for('main.dashboard', path=current_path))
 
 @main_bp.route('/share/<filename>', methods=['POST'])
 @login_required

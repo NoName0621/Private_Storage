@@ -38,4 +38,9 @@ def create_app(config_class=Config):
     app.register_blueprint(main_bp)
     app.register_blueprint(admin_bp)
 
+    from .utils import format_size
+    @app.template_filter('format_size')
+    def format_size_filter(s):
+        return format_size(s)
+
     return app

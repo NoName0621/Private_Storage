@@ -9,7 +9,39 @@ from .models import User
 
 def allowed_file(filename):
     # Allow all file types - security is handled by secure_filename and server configuration
+    # Allow all file types - security is handled by secure_filename and server configuration
     return True
+
+import zipfile
+
+def get_zip_contents(user_id, file_path):
+    upload_dir = get_user_upload_dir(user_id)
+    full_path = os.path.join(upload_dir, file_path)
+    
+    # Security check
+    if not os.path.abspath(full_path).startswith(os.path.abspath(upload_dir)):
+        return None
+        
+    if not os.path.exists(full_path):
+        return None
+        
+    try:
+        if not zipfile.is_zipfile(full_path):
+            return None
+            
+        with zipfile.ZipFile(full_path, 'r') as zf:
+            return zf.namelist()
+    except:
+        return None
+
+def format_size(size):
+    power = 2**10
+    n = 0
+    power_labels = {0 : '', 1: 'KB', 2: 'MB', 3: 'GB', 4: 'TB'}
+    while size > power:
+        size /= power
+        n += 1
+    return f"{size:.2f} {power_labels[n]}"
 
 def get_user_upload_dir(user_id):
     upload_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], str(user_id))
@@ -70,7 +102,7 @@ def get_temp_usage(user_id):
                 total_size += os.path.getsize(fp)
     return total_size
 
-def save_file(file, user):
+def save_file(file, user, subpath=''):
     if not file or not allowed_file(file.filename):
         return None, "Invalid file type."
     
@@ -89,14 +121,23 @@ def save_file(file, user):
         filename = str(uuid.uuid4())
     
     upload_dir = get_user_upload_dir(user.id)
-    file_path = os.path.join(upload_dir, filename)
+    target_dir = os.path.join(upload_dir, subpath)
+    
+    # Security check
+    if not os.path.abspath(target_dir).startswith(os.path.abspath(upload_dir)):
+        return None, "Invalid path"
+        
+    if not os.path.exists(target_dir):
+        os.makedirs(target_dir)
+
+    file_path = os.path.join(target_dir, filename)
 
     # Auto-rename if file exists
     base, ext = os.path.splitext(filename)
     counter = 1
     while os.path.exists(file_path):
         filename = f"{base}_{counter}{ext}"
-        file_path = os.path.join(upload_dir, filename)
+        file_path = os.path.join(target_dir, filename)
         counter += 1
     
     # Calculate hash before saving
@@ -106,7 +147,11 @@ def save_file(file, user):
     
     # Save metadata
     metadata = load_metadata(user.id)
-    metadata[filename] = {'hash': file_hash, 'share_token': None}
+    
+    # Use relative path for metadata key if in subfolder
+    meta_key = os.path.join(subpath, filename).replace('\\', '/') if subpath else filename
+    
+    metadata[meta_key] = {'hash': file_hash, 'share_token': None}
     save_metadata(user.id, metadata)
     
     return filename, None
@@ -128,24 +173,45 @@ def delete_user_file(user_id, filename):
         return True
     return False
 
-def get_user_files(user_id):
+def get_user_files(user_id, subpath=''):
     upload_dir = get_user_upload_dir(user_id)
+    target_dir = os.path.join(upload_dir, subpath)
+    
+    # Security check to prevent directory traversal
+    if not os.path.abspath(target_dir).startswith(os.path.abspath(upload_dir)):
+        return []
+
     metadata = load_metadata(user_id)
     files = []
-    if os.path.exists(upload_dir):
-        for f in os.listdir(upload_dir):
-            fp = os.path.join(upload_dir, f)
-            if os.path.isfile(fp) and f != 'metadata.json':
+    
+    if os.path.exists(target_dir):
+        for f in os.listdir(target_dir):
+            fp = os.path.join(target_dir, f)
+            rel_path = os.path.join(subpath, f).replace('\\', '/')
+            
+            if os.path.isdir(fp):
+                files.append({
+                    'name': f,
+                    'type': 'folder',
+                    'size': 0, # Folders don't have size in this simple view
+                    'path': rel_path
+                })
+            elif os.path.isfile(fp) and f != 'metadata.json':
                 size = os.path.getsize(fp)
-                meta = metadata.get(f, {})
+                
+                meta_key = rel_path if subpath else f
+                meta = metadata.get(meta_key, {})
+                
                 # Handle legacy string format just in case
                 if isinstance(meta, str):
                     meta = {'hash': meta, 'share_token': None}
                 
                 files.append({
                     'name': f, 
+                    'type': 'file',
                     'size': size,
-                    'share_token': meta.get('share_token')
+                    'share_token': meta.get('share_token'),
+                    'path': rel_path
                 })
     return files
 
@@ -204,7 +270,7 @@ def cleanup_user_temp(user_id):
     if os.path.exists(temp_dir):
         shutil.rmtree(temp_dir)
 
-def merge_chunks(user_id, upload_id, filename, total_chunks, user):
+def merge_chunks(user_id, upload_id, filename, total_chunks, user, subpath=''):
     chunk_dir = get_chunk_dir(user_id, upload_id)
     
     # Check if all chunks exist
@@ -241,14 +307,23 @@ def merge_chunks(user_id, upload_id, filename, total_chunks, user):
         filename = str(uuid.uuid4())
         
     upload_dir = get_user_upload_dir(user.id)
-    file_path = os.path.join(upload_dir, filename)
+    target_dir = os.path.join(upload_dir, subpath)
+    
+    # Security check
+    if not os.path.abspath(target_dir).startswith(os.path.abspath(upload_dir)):
+        return None, "Invalid path"
+        
+    if not os.path.exists(target_dir):
+        os.makedirs(target_dir)
+
+    file_path = os.path.join(target_dir, filename)
 
     # Auto-rename if file exists
     base, ext = os.path.splitext(filename)
     counter = 1
     while os.path.exists(file_path):
         filename = f"{base}_{counter}{ext}"
-        file_path = os.path.join(upload_dir, filename)
+        file_path = os.path.join(target_dir, filename)
         counter += 1
     
     # Merge
@@ -263,7 +338,11 @@ def merge_chunks(user_id, upload_id, filename, total_chunks, user):
     
     # Save metadata
     metadata = load_metadata(user.id)
-    metadata[filename] = {'hash': file_hash, 'share_token': None}
+    
+    # Use relative path for metadata key if in subfolder
+    meta_key = os.path.join(subpath, filename).replace('\\', '/') if subpath else filename
+        
+    metadata[meta_key] = {'hash': file_hash, 'share_token': None}
     save_metadata(user.id, metadata)
     
     # Cleanup chunks
@@ -314,3 +393,60 @@ def get_file_by_token(token):
             continue
             
     return None, None
+
+def create_user_folder(user_id, subpath, folder_name):
+    upload_dir = get_user_upload_dir(user_id)
+    target_dir = os.path.join(upload_dir, subpath)
+    
+    # Security check
+    if not os.path.abspath(target_dir).startswith(os.path.abspath(upload_dir)):
+        return False, "Invalid path"
+        
+    new_folder_path = os.path.join(target_dir, secure_filename(folder_name))
+    
+    if os.path.exists(new_folder_path):
+        return False, "Folder already exists"
+        
+    try:
+        os.makedirs(new_folder_path)
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+def delete_user_folder(user_id, folder_path):
+    upload_dir = get_user_upload_dir(user_id)
+    target_dir = os.path.join(upload_dir, folder_path)
+    
+    # Security check
+    if not os.path.abspath(target_dir).startswith(os.path.abspath(upload_dir)):
+        return False, "Invalid path"
+        
+    if not os.path.exists(target_dir):
+        return False, "Folder not found"
+        
+    if not os.path.isdir(target_dir):
+        return False, "Not a folder"
+        
+    try:
+        shutil.rmtree(target_dir)
+        
+        # Cleanup metadata
+        # We need to remove all keys that start with the folder path
+        metadata = load_metadata(user_id)
+        
+        # Normalize folder path for comparison (ensure it behaves like a prefix)
+        # Stored paths in metadata are relative paths using forward slashes
+        prefix = folder_path.replace('\\', '/')
+        if not prefix.endswith('/'):
+            prefix += '/'
+            
+        keys_to_delete = [k for k in metadata if k.startswith(prefix)]
+        
+        if keys_to_delete:
+            for k in keys_to_delete:
+                del metadata[k]
+            save_metadata(user_id, metadata)
+            
+        return True, None
+    except Exception as e:
+        return False, str(e)
