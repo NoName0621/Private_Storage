@@ -3,13 +3,31 @@ import uuid
 import hashlib
 import json
 import shutil
-from werkzeug.utils import secure_filename
+import unicodedata
+import re
 from flask import current_app
 from .models import User
 
+# ファイル名から危険な文字を取り除く関数
+# 日本語などのUnicode文字はそのまま残し、OS禁止文字（/ \ : * ? " < > |）と
+# パストラバーサル（先頭の ..）だけを _ に置き換える
+def safe_filename(filename: str) -> str:
+    if not filename:
+        return ""
+
+    # Unicode正規化（NFC）
+    filename = unicodedata.normalize("NFC", filename)
+
+    # OS禁止文字を _ に置き換える
+    filename = re.sub(r'[\\/:\*\?"<>|]', '_', filename)
+
+    # 先頭のドット連続を _ に置き換える（パストラバーサル防止）
+    filename = re.sub(r'^\.+', '_', filename)
+
+    return filename.strip()
+
+# 全ファイル形式を許可する（ファイル形式の制限はサーバー設定で行う）
 def allowed_file(filename):
-    # Allow all file types - security is handled by secure_filename and server configuration
-    # Allow all file types - security is handled by secure_filename and server configuration
     return True
 
 import zipfile
@@ -116,7 +134,7 @@ def save_file(file, user, subpath=''):
     if not user.has_space(file_size + temp_usage):
         return None, "Quota exceeded."
 
-    filename = secure_filename(file.filename)
+    filename = safe_filename(file.filename)
     if not filename:
         filename = str(uuid.uuid4())
     
@@ -158,7 +176,7 @@ def save_file(file, user, subpath=''):
 
 def delete_user_file(user_id, filename):
     upload_dir = get_user_upload_dir(user_id)
-    filename = secure_filename(filename)
+    filename = safe_filename(filename)
     file_path = os.path.join(upload_dir, filename)
     
     if os.path.exists(file_path):
@@ -301,8 +319,8 @@ def merge_chunks(user_id, upload_id, filename, total_chunks, user, subpath=''):
         shutil.rmtree(chunk_dir)
         return None, "Quota exceeded."
 
-    # Secure filename
-    filename = secure_filename(filename)
+    # Safe filename (日本語対応)
+    filename = safe_filename(filename)
     if not filename:
         filename = str(uuid.uuid4())
         
@@ -402,7 +420,7 @@ def create_user_folder(user_id, subpath, folder_name):
     if not os.path.abspath(target_dir).startswith(os.path.abspath(upload_dir)):
         return False, "Invalid path"
         
-    new_folder_path = os.path.join(target_dir, secure_filename(folder_name))
+    new_folder_path = os.path.join(target_dir, safe_filename(folder_name))
     
     if os.path.exists(new_folder_path):
         return False, "Folder already exists"

@@ -2,7 +2,6 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from .utils import save_file, get_user_files, delete_user_file, get_user_upload_dir, verify_file_integrity, generate_share_token, revoke_share_token, get_file_by_token, delete_upload_chunks
 from .models import db
-from werkzeug.utils import secure_filename
 import os
 
 main_bp = Blueprint('main', __name__)
