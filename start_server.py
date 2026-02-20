@@ -166,9 +166,9 @@ class ServerManager:
             print("Creating virtual environment (.venv)...")
             try:
                 venv.EnvBuilder(with_pip=True).create(str(self.venv_dir))
-                print("âœ“ Virtual environment created")
+                print("[OK] Virtual environment created")
             except Exception as e:
-                print(f"âœ— Failed to create virtual environment: {e}")
+                print(f"[ERROR] Failed to create virtual environment: {e}")
                 return False
 
         self.python_executable = venv_python
@@ -192,10 +192,10 @@ class ServerManager:
         ]
         try:
             subprocess.run(install_cmd, cwd=str(self.base_dir), check=True, env=self.get_venv_env())
-            print("âœ“ Dependencies installed")
+            print("[OK] Dependencies installed")
             return True
         except Exception as e:
-            print(f"âœ— Failed to install dependencies: {e}")
+            print(f"[ERROR] Failed to install dependencies: {e}")
             return False
         
     def start_server(self):
@@ -255,10 +255,10 @@ class ServerManager:
             
         try:
             self.server_process = subprocess.Popen(cmd, cwd=str(self.base_dir), env=self.get_venv_env())
-            print(f"âœ“ Server started (PID: {self.server_process.pid})")
+            print(f"[OK] Server started (PID: {self.server_process.pid})")
             return True
         except Exception as e:
-            print(f"âœ— Failed to start server: {e}")
+            print(f"[ERROR] Failed to start server: {e}")
             return False
             
     def start_updater(self):
@@ -266,10 +266,10 @@ class ServerManager:
         try:
             cmd = [str(self.python_executable), 'update_service.py']
             self.updater_process = subprocess.Popen(cmd, cwd=str(self.base_dir), env=self.get_venv_env())
-            print(f"âœ“ Update service started (PID: {self.updater_process.pid})")
+            print(f"[OK] Update service started (PID: {self.updater_process.pid})")
             return True
         except Exception as e:
-            print(f"âœ— Failed to start update service: {e}")
+            print(f"[ERROR] Failed to start update service: {e}")
             return False
             
     def stop_server(self):
@@ -279,9 +279,9 @@ class ServerManager:
             try:
                 self.server_process.terminate()
                 self.server_process.wait(timeout=10)
-                print("âœ“ Server stopped")
+                print("[OK] Server stopped")
             except subprocess.TimeoutExpired:
-                print("âš  Forcing server shutdown...")
+                print("[WARN] Forcing server shutdown...")
                 self.server_process.kill()
             except Exception as e:
                 print(f"Error stopping server: {e}")
@@ -295,9 +295,9 @@ class ServerManager:
             try:
                 self.updater_process.terminate()
                 self.updater_process.wait(timeout=5)
-                print("âœ“ Update service stopped")
+                print("[OK] Update service stopped")
             except subprocess.TimeoutExpired:
-                print("âš  Forcing update service shutdown...")
+                print("[WARN] Forcing update service shutdown...")
                 self.updater_process.kill()
             except Exception as e:
                 print(f"Error stopping update service: {e}")
@@ -333,13 +333,13 @@ class ServerManager:
                     
                 # Check if server is still running
                 if self.server_process and self.server_process.poll() is not None:
-                    print("âš  Server process stopped unexpectedly")
+                    print("[WARN] Server process stopped unexpectedly")
                     self.running = False
                     break
                     
                 # Check if updater is still running
                 if self.updater_process and self.updater_process.poll() is not None:
-                    print("âš  Update service stopped")
+                    print("[WARN] Update service stopped")
                     # Updater might stop naturally, don't restart
                     
                 time.sleep(5)  # Check every 5 seconds
@@ -362,7 +362,7 @@ class ServerManager:
         
         # Start server
         if not self.start_server():
-            print("âœ— Failed to start server, exiting")
+            print("[ERROR] Failed to start server, exiting")
             return
             
         # Wait a moment for server to initialize
@@ -370,7 +370,7 @@ class ServerManager:
         
         # Check if server is actually running
         if self.server_process.poll() is not None:
-            print("âœ— Server failed to start. Please check:")
+            print("[ERROR] Server failed to start. Please check:")
             print("  1. Is waitress installed? Run: pip install waitress")
             print("  2. Is port 5000 already in use?")
             print("  3. Check server_output.log for errors")
@@ -378,11 +378,11 @@ class ServerManager:
             
         # Start updater
         if not self.start_updater():
-            print("âš  Update service failed to start, but server is running")
+            print("[WARN] Update service failed to start, but server is running")
             
         # Display info
         print("=" * 60)
-        print("âœ“ Server is running at http://127.0.0.1:5000")
+        print("[OK] Server is running at http://127.0.0.1:5000")
         print("  Press Ctrl+C to stop")
         print("=" * 60)
         print()
