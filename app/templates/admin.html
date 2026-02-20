@@ -41,6 +41,7 @@
     </div>
 
     <h3>Users</h3>
+    <div class="table-wrap">
     <table>
         <thead>
             <tr>
@@ -58,7 +59,7 @@
                 <td>{{ (user.used_bytes / 1024 / 1024)|round(2) }} MB / {{ (user.quota_bytes / 1024 / 1024 /
                     1024)|round(2) }} GB</td>
                 <td>
-                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <div class="actions-group" style="gap: 10px;">
                         <form action="{{ url_for('admin.update_quota', user_id=user.id) }}" method="POST"
                             style="display: flex; gap: 5px;">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -92,5 +93,6 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 {% endblock %}

@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_from_directory, current_app, abort
 from flask_login import login_required, current_user
-from .utils import save_file, get_user_files, delete_user_file, get_user_upload_dir, verify_file_integrity, generate_share_token, revoke_share_token, get_file_by_token, delete_upload_chunks
+from .utils import save_file, get_user_files, delete_user_file, get_user_upload_dir, verify_file_integrity, generate_share_token, revoke_share_token, get_file_by_token, delete_upload_chunks, is_safe_upload_id
 from .models import db
 import os
 
@@ -111,6 +111,8 @@ def upload_chunk():
     
     if not upload_id or chunk_index is None:
         return {'status': 'error', 'message': 'Missing upload_id or chunk_index'}, 400
+    if not is_safe_upload_id(upload_id):
+        return {'status': 'error', 'message': 'Invalid upload_id'}, 400
         
     try:
         from .utils import save_chunk
@@ -131,6 +133,8 @@ def upload_merge():
     
     if not upload_id or not filename or not total_chunks:
         return {'status': 'error', 'message': 'Missing parameters'}, 400
+    if not is_safe_upload_id(upload_id):
+        return {'status': 'error', 'message': 'Invalid upload_id'}, 400
         
     try:
         from .utils import merge_chunks
@@ -159,6 +163,8 @@ def upload_cancel():
     upload_id = request.form.get('upload_id')
     if not upload_id:
         return {'status': 'error', 'message': 'Missing upload_id'}, 400
+    if not is_safe_upload_id(upload_id):
+        return {'status': 'error', 'message': 'Invalid upload_id'}, 400
         
     if delete_upload_chunks(current_user.id, upload_id):
         return {'status': 'success', 'message': 'Upload cancelled and cleaned up'}, 200

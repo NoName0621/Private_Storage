@@ -21,7 +21,7 @@
     <div class="container">
         <div class="header">
             <h1><a href="{{ url_for('main.dashboard') }}">Private Storage</a></h1>
-            <div style="display: flex; gap: 10px; align-items: center;">
+            <div class="header-actions">
                 <button id="theme-toggle" class="btn btn-secondary">Toggle Theme</button>
                 {% if current_user.is_authenticated %}
                 <span>{{ current_user.username }}</span>
@@ -33,12 +33,9 @@
         </div>
 
         <!-- Password Change Modal -->
-        <div id="password-modal" class="modal"
-            style="display:none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
-            <div class="modal-content"
-                style="background-color: var(--bg-color); margin: 15% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 400px; border-radius: 8px;">
-                <span onclick="document.getElementById('password-modal').style.display='none'" class="close"
-                    style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+        <div id="password-modal" class="modal modal-shell">
+            <div class="modal-content modal-content-card" style="max-width: 400px;">
+                <span onclick="document.getElementById('password-modal').style.display='none'" class="close-x">&times;</span>
                 <h2>Change Password</h2>
                 <form action="{{ url_for('auth.change_password') }}" method="POST">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

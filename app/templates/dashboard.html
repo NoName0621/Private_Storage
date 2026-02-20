@@ -4,8 +4,8 @@
 <div class="card">
     <h2>My Files</h2>
 
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-        <div class="breadcrumbs" style="display: flex; align-items: center; gap: 8px;">
+    <div class="section-row">
+        <div class="breadcrumbs">
             <a href="{{ url_for('main.dashboard') }}" class="btn btn-secondary">Home</a>
             {% for crumb in breadcrumbs %}
             <span style="color: #888; font-size: 1.2em;">/</span>
@@ -31,7 +31,7 @@
             <input type="file" id="file" name="file" multiple required>
             <input type="hidden" name="current_path" value="{{ current_path }}">
         </div>
-        <div style="display: flex; gap: 10px;">
+        <div class="upload-actions">
             <button type="submit" class="btn btn-primary" id="upload-btn">Upload</button>
             <button type="button" class="btn btn-danger" id="cancel-btn" style="display: none;">Cancel</button>
         </div>
@@ -52,6 +52,7 @@
         </div>
     </div>
 
+    <div class="table-wrap">
     <table>
         <thead>
             <tr>
@@ -82,8 +83,8 @@
                 </td>
                 <td>
                     {% if file.type != 'folder' %}
-                    <div style="display: flex; gap: 5px; flex-wrap: wrap; align-items: center;">
-                        <div style="display: flex; align-items: center; gap: 5px;">
+                    <div class="actions-group" style="align-items: center;">
+                        <div class="actions-group" style="align-items: center;">
                             <input type="checkbox" id="share-{{ loop.index }}" {% if file.share_token %}checked{% endif
                                 %} onchange="toggleShare('{{ file.name }}', this.checked)" style="cursor: pointer;">
                             <label for="share-{{ loop.index }}"
@@ -99,7 +100,7 @@
                     {% endif %}
                 </td>
                 <td>
-                    <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+                    <div class="actions-group">
                         {% if file.type != 'folder' %}
                         <a href="{{ url_for('main.download_file', filename=file.name) }}" class="btn btn-primary"
                             style="padding: 4px 8px; font-size: 12px;">Download</a>
@@ -136,6 +137,7 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 
 <script>
@@ -409,12 +411,19 @@
                 const result = await response.json();
 
                 if (result.status === 'success') {
-                    let html = '<ul style="text-align: left; max-height: 400px; overflow-y: auto;">';
+                    const ul = document.createElement('ul');
+                    ul.style.textAlign = 'left';
+                    ul.style.maxHeight = '400px';
+                    ul.style.overflowY = 'auto';
+
                     result.contents.forEach(item => {
-                        html += `<li>${item}</li>`;
+                        const li = document.createElement('li');
+                        li.textContent = item;
+                        ul.appendChild(li);
                     });
-                    html += '</ul>';
-                    content.innerHTML = html;
+
+                    content.innerHTML = '';
+                    content.appendChild(ul);
                 } else {
                     content.innerHTML = 'Error loading preview: ' + result.message;
                 }
@@ -439,12 +448,9 @@
 </script>
 
 <!-- Create Folder Modal -->
-<div id="create-folder-modal" class="modal"
-    style="display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
-    <div class="modal-content"
-        style="background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 500px; border-radius: 5px;">
-        <span class="close" onclick="document.getElementById('create-folder-modal').style.display='none'"
-            style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+<div id="create-folder-modal" class="modal modal-shell">
+    <div class="modal-content modal-content-card">
+        <span class="close-x" onclick="document.getElementById('create-folder-modal').style.display='none'">&times;</span>
         <h3>Create New Folder</h3>
         <form action="{{ url_for('main.create_folder') }}" method="POST">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -459,12 +465,9 @@
 </div>
 
 <!-- Preview Modal -->
-<div id="preview-modal" class="modal"
-    style="display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.8);">
-    <div class="modal-content"
-        style="background-color: #fefefe; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 800px; border-radius: 5px; position: relative;">
-        <span class="close" onclick="document.getElementById('preview-modal').style.display='none'"
-            style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+<div id="preview-modal" class="modal modal-shell modal-shell-dark">
+    <div class="modal-content modal-content-card modal-content-wide" style="position: relative;">
+        <span class="close-x" onclick="document.getElementById('preview-modal').style.display='none'">&times;</span>
         <h3 id="preview-title">Preview</h3>
         <div id="preview-content"
             style="text-align: center; min-height: 200px; display: flex; justify-content: center; align-items: center;">

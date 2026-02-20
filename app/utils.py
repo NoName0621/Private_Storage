@@ -32,12 +32,26 @@ def allowed_file(filename):
 
 import zipfile
 
+UPLOAD_ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,128}$')
+
+def is_safe_upload_id(upload_id: str) -> bool:
+    return bool(upload_id and UPLOAD_ID_RE.fullmatch(upload_id))
+
+def safe_join_under_base(base_dir: str, *parts):
+    """Join paths and ensure the resulting path stays under base_dir."""
+    base_abs = os.path.abspath(base_dir)
+    candidate = os.path.abspath(os.path.join(base_abs, *parts))
+    try:
+        if os.path.commonpath([base_abs, candidate]) != base_abs:
+            return None
+    except ValueError:
+        return None
+    return candidate
+
 def get_zip_contents(user_id, file_path):
     upload_dir = get_user_upload_dir(user_id)
-    full_path = os.path.join(upload_dir, file_path)
-    
-    # Security check
-    if not os.path.abspath(full_path).startswith(os.path.abspath(upload_dir)):
+    full_path = safe_join_under_base(upload_dir, file_path)
+    if not full_path:
         return None
         
     if not os.path.exists(full_path):
@@ -139,10 +153,8 @@ def save_file(file, user, subpath=''):
         filename = str(uuid.uuid4())
     
     upload_dir = get_user_upload_dir(user.id)
-    target_dir = os.path.join(upload_dir, subpath)
-    
-    # Security check
-    if not os.path.abspath(target_dir).startswith(os.path.abspath(upload_dir)):
+    target_dir = safe_join_under_base(upload_dir, subpath)
+    if not target_dir:
         return None, "Invalid path"
         
     if not os.path.exists(target_dir):
@@ -193,10 +205,8 @@ def delete_user_file(user_id, filename):
 
 def get_user_files(user_id, subpath=''):
     upload_dir = get_user_upload_dir(user_id)
-    target_dir = os.path.join(upload_dir, subpath)
-    
-    # Security check to prevent directory traversal
-    if not os.path.abspath(target_dir).startswith(os.path.abspath(upload_dir)):
+    target_dir = safe_join_under_base(upload_dir, subpath)
+    if not target_dir:
         return []
 
     metadata = load_metadata(user_id)
@@ -246,7 +256,9 @@ def verify_file_integrity(user_id, filename):
         return True
         
     upload_dir = get_user_upload_dir(user_id)
-    file_path = os.path.join(upload_dir, filename)
+    file_path = safe_join_under_base(upload_dir, filename)
+    if not file_path:
+        return False
     
     if not os.path.exists(file_path):
         return False
@@ -255,7 +267,12 @@ def verify_file_integrity(user_id, filename):
     return current_hash == stored_hash
 
 def get_chunk_dir(user_id, upload_id):
-    chunk_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'temp', str(user_id), upload_id)
+    if not is_safe_upload_id(upload_id):
+        return None
+    temp_user_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'temp', str(user_id))
+    chunk_dir = safe_join_under_base(temp_user_dir, upload_id)
+    if not chunk_dir:
+        return None
     if not os.path.exists(chunk_dir):
         os.makedirs(chunk_dir)
     return chunk_dir
@@ -271,12 +288,19 @@ def save_chunk(user_id, upload_id, chunk_index, chunk_file, user):
         return False, "Quota exceeded."
 
     chunk_dir = get_chunk_dir(user_id, upload_id)
+    if not chunk_dir:
+        return False, "Invalid upload_id"
     chunk_path = os.path.join(chunk_dir, f"{chunk_index}")
     chunk_file.save(chunk_path)
     return True, None
 
 def delete_upload_chunks(user_id, upload_id):
-    chunk_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'temp', str(user_id), upload_id)
+    if not is_safe_upload_id(upload_id):
+        return False
+    temp_user_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'temp', str(user_id))
+    chunk_dir = safe_join_under_base(temp_user_dir, upload_id)
+    if not chunk_dir:
+        return False
     if os.path.exists(chunk_dir):
         shutil.rmtree(chunk_dir)
         return True
@@ -290,6 +314,8 @@ def cleanup_user_temp(user_id):
 
 def merge_chunks(user_id, upload_id, filename, total_chunks, user, subpath=''):
     chunk_dir = get_chunk_dir(user_id, upload_id)
+    if not chunk_dir:
+        return None, "Invalid upload_id"
     
     # Check if all chunks exist
     for i in range(total_chunks):
@@ -325,10 +351,8 @@ def merge_chunks(user_id, upload_id, filename, total_chunks, user, subpath=''):
         filename = str(uuid.uuid4())
         
     upload_dir = get_user_upload_dir(user.id)
-    target_dir = os.path.join(upload_dir, subpath)
-    
-    # Security check
-    if not os.path.abspath(target_dir).startswith(os.path.abspath(upload_dir)):
+    target_dir = safe_join_under_base(upload_dir, subpath)
+    if not target_dir:
         return None, "Invalid path"
         
     if not os.path.exists(target_dir):
@@ -414,10 +438,8 @@ def get_file_by_token(token):
 
 def create_user_folder(user_id, subpath, folder_name):
     upload_dir = get_user_upload_dir(user_id)
-    target_dir = os.path.join(upload_dir, subpath)
-    
-    # Security check
-    if not os.path.abspath(target_dir).startswith(os.path.abspath(upload_dir)):
+    target_dir = safe_join_under_base(upload_dir, subpath)
+    if not target_dir:
         return False, "Invalid path"
         
     new_folder_path = os.path.join(target_dir, safe_filename(folder_name))
@@ -433,10 +455,8 @@ def create_user_folder(user_id, subpath, folder_name):
 
 def delete_user_folder(user_id, folder_path):
     upload_dir = get_user_upload_dir(user_id)
-    target_dir = os.path.join(upload_dir, folder_path)
-    
-    # Security check
-    if not os.path.abspath(target_dir).startswith(os.path.abspath(upload_dir)):
+    target_dir = safe_join_under_base(upload_dir, folder_path)
+    if not target_dir:
         return False, "Invalid path"
         
     if not os.path.exists(target_dir):

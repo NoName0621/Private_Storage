@@ -1,7 +1,8 @@
 import os
+import secrets
 
 class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production-84758473'
+    SECRET_KEY = os.environ.get('SECRET_KEY') or secrets.token_urlsafe(64)
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'sqlite:///storage.db'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
@@ -11,7 +12,7 @@ class Config:
 
     # Security
     SESSION_COOKIE_HTTPONLY = True
-    SESSION_COOKIE_SECURE = False  # Requires HTTPS (Cloudflare) - Disabled for local dev
+    SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'true').lower() == 'true'
     SESSION_COOKIE_SAMESITE = 'Lax'
     
     # Rate Limiting
