@@ -85,6 +85,22 @@ class ServerManager:
         """Build environment variables equivalent to venv activation."""
         return build_venv_env(self.base_dir)
 
+    def module_available(self, module_name):
+        """Check whether a Python module can be imported in the active venv."""
+        check_cmd = [str(self.python_executable), '-c', f'import {module_name}']
+        try:
+            subprocess.run(
+                check_cmd,
+                cwd=str(self.base_dir),
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=self.get_venv_env()
+            )
+            return True
+        except Exception:
+            return False
+
     def ensure_pip_available(self):
         """Ensure pip is available in the selected Python environment"""
         pip_check_cmd = [str(self.python_executable), '-m', 'pip', '--version']
@@ -215,16 +231,27 @@ class ServerManager:
             ]
             print(f"Starting Waitress server on http://127.0.0.1:5000 (threads: {threads})")
         else:
-            # Use Gunicorn for Mac/Linux
-            cmd = [
-                str(self.python_executable),
-                '-m',
-                'gunicorn',
-                '-w', str(workers),
-                '-b', '127.0.0.1:5000',
-                'run:app'
-            ]
-            print(f"Starting Gunicorn server on http://127.0.0.1:5000 (workers: {workers})")
+            # Prefer Gunicorn for Mac/Linux, but fall back to Waitress if unavailable.
+            if self.module_available('gunicorn'):
+                cmd = [
+                    str(self.python_executable),
+                    '-m',
+                    'gunicorn',
+                    '-w', str(workers),
+                    '-b', '127.0.0.1:5000',
+                    'run:app'
+                ]
+                print(f"Starting Gunicorn server on http://127.0.0.1:5000 (workers: {workers})")
+            else:
+                print("Gunicorn is not available; falling back to Waitress.")
+                cmd = [
+                    str(self.python_executable),
+                    '-m', 'waitress',
+                    f'--threads={threads}',
+                    '--listen=127.0.0.1:5000',
+                    'run:app'
+                ]
+                print(f"Starting Waitress server on http://127.0.0.1:5000 (threads: {threads})")
             
         try:
             self.server_process = subprocess.Popen(cmd, cwd=str(self.base_dir), env=self.get_venv_env())
